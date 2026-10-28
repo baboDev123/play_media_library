@@ -9,15 +9,15 @@ subprojects {
             publishToMavenCentral()
             signAllPublications()
             coordinates(
-                groupId = "io.github.playme",
+                groupId = property("GROUP") as String,
                 artifactId = project.name,
-                version = "1.0.0"
+                version = property("VERSION_NAME") as String,
             )
 
             pom {
                 name.set("PlayMe ${project.name}")
-                description.set("High-performance media decoding and processing engine for Android Media3")
-                url.set("https://github.com/playme/playme-media")
+                description.set("FFmpeg decoding, container reading, media info and thumbnails for Android Media3")
+                url.set("https://github.com/baboDev123/play_media_library")
 
                 licenses {
                     license {
@@ -33,9 +33,9 @@ subprojects {
                     }
                 }
                 scm {
-                    connection.set("scm:git:git://github.com/playme/playme-media.git")
-                    developerConnection.set("scm:git:ssh://github.com/playme/playme-media.git")
-                    url.set("https://github.com/playme/playme-media")
+                    connection.set("scm:git:git://github.com/baboDev123/play_media_library.git")
+                    developerConnection.set("scm:git:ssh://github.com/baboDev123/play_media_library.git")
+                    url.set("https://github.com/baboDev123/play_media_library")
                 }
             }
         }

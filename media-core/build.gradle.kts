@@ -13,6 +13,7 @@ android {
     defaultConfig {
         minSdk = libs.versions.androidMinSdk.get().toInt()
         consumerProguardFiles("consumer-rules.pro")
+        buildConfigField("String", "PLAYMEDIA_VERSION", "\"${property("VERSION_NAME")}\"")
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
         }
@@ -21,6 +22,10 @@ android {
                 arguments += listOf("-DANDROID_STL=c++_static")
             }
         }
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {

@@ -10,6 +10,10 @@ import androidx.annotation.RestrictTo
  */
 object PlayMediaNative {
 
+    /** This library's version, as in CHANGELOG.md. */
+    @JvmStatic
+    val version: String = BuildConfig.PLAYMEDIA_VERSION
+
     /** True when the native engine loaded. */
     @JvmStatic
     val isAvailable: Boolean = try {
