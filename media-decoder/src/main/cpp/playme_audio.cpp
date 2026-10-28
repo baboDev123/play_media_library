@@ -23,6 +23,16 @@ PlayMeAudioDecoderNative::PlayMeAudioDecoderNative(const std::string& mimeType, 
     else if (mimeType == "audio/opus") codecId = AV_CODEC_ID_OPUS;
     else if (mimeType == "audio/alac") codecId = AV_CODEC_ID_ALAC;
     else if (mimeType == "audio/mp4a-latm") codecId = AV_CODEC_ID_AAC;
+    else if (mimeType == "audio/vnd.dts.hd") codecId = AV_CODEC_ID_DTS;
+    else if (mimeType == "audio/mpeg" || mimeType == "audio/mp3") codecId = AV_CODEC_ID_MP3;
+    else if (mimeType == "audio/mpeg-L2" || mimeType == "audio/mp2") codecId = AV_CODEC_ID_MP2;
+    else if (mimeType == "audio/x-ms-wma") codecId = AV_CODEC_ID_WMAV2;
+    else if (mimeType == "audio/x-ms-wmapro") codecId = AV_CODEC_ID_WMAPRO;
+    else if (mimeType == "audio/3gpp") codecId = AV_CODEC_ID_AMR_NB;
+    else if (mimeType == "audio/amr-wb") codecId = AV_CODEC_ID_AMR_WB;
+    else if (mimeType == "audio/raw") codecId = AV_CODEC_ID_PCM_S16LE;
+    else if (mimeType == "audio/g711-alaw") codecId = AV_CODEC_ID_PCM_ALAW;
+    else if (mimeType == "audio/g711-mlaw") codecId = AV_CODEC_ID_PCM_MULAW;
 
     if (codecId != AV_CODEC_ID_NONE) {
         mCodec = avcodec_find_decoder(codecId);

@@ -46,4 +46,20 @@ Java_io_github_playme_media_info_MediaInfoNativeBridge_nativeExtractFrameAtTimeF
     return ThumbnailExtractorNative::extractFrameAtTime(env, pipeUrl, timeUs, targetWidth, targetHeight);
 }
 
+// --- Custom AVIOContext / Network Stream (SMB, FTP, SFTP) APIs ---
+
+JNIEXPORT jobject JNICALL
+Java_io_github_playme_media_info_MediaInfoNativeBridge_nativeParseMediaInfoStream(
+    JNIEnv* env, jclass, jobject jInputStream, jlong streamLength) {
+    if (!jInputStream) return nullptr;
+    return MediaInfoReaderNative::parseMediaInfoStream(env, jInputStream, streamLength);
+}
+
+JNIEXPORT jobject JNICALL
+Java_io_github_playme_media_info_MediaInfoNativeBridge_nativeExtractFrameAtTimeStream(
+    JNIEnv* env, jclass, jobject jInputStream, jlong streamLength, jlong timeUs, jint targetWidth, jint targetHeight) {
+    if (!jInputStream) return nullptr;
+    return ThumbnailExtractorNative::extractFrameAtTimeStream(env, jInputStream, streamLength, timeUs, targetWidth, targetHeight);
+}
+
 } // extern "C"

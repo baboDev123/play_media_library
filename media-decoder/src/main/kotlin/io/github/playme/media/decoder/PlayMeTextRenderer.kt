@@ -138,3 +138,4 @@ var ExoPlayer.subtitleSpeed: Float
             }.send()
         }
     }
+

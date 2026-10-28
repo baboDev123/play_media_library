@@ -3,7 +3,6 @@
 #include <android/log.h>
 #include <jni.h>
 #include <string>
-#include <vector>
 
 #define LOG_TAG "PlayMeInfoNative"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -15,11 +14,17 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
 #include <libavutil/dict.h>
+#include <libavutil/display.h>
+#include <libavutil/pixdesc.h>
 }
 #endif
 
 class MediaInfoReaderNative {
 public:
     static jobject parseMediaInfo(JNIEnv* env, const std::string& filePath);
-};
+    static jobject parseMediaInfoStream(JNIEnv* env, jobject jInputStream, int64_t streamLength);
 
+#ifndef PLAYME_STUB_FFMPEG
+    static jobject parseFromFormatContext(JNIEnv* env, AVFormatContext* formatCtx, const std::string& sourcePath);
+#endif
+};

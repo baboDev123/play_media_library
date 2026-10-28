@@ -34,6 +34,14 @@ PlayMeVideoDecoderNative::PlayMeVideoDecoderNative(
         codecId = AV_CODEC_ID_AV1;
     } else if (mimeType == "video/mpeg2") {
         codecId = AV_CODEC_ID_MPEG2VIDEO;
+    } else if (mimeType == "video/mp4v-es") {
+        codecId = AV_CODEC_ID_MPEG4;
+    } else if (mimeType == "video/wvc1" || mimeType == "video/x-ms-wmv") {
+        codecId = AV_CODEC_ID_VC1;
+    } else if (mimeType == "video/x-ms-wmv3") {
+        codecId = AV_CODEC_ID_WMV3;
+    } else if (mimeType == "video/mjpeg") {
+        codecId = AV_CODEC_ID_MJPEG;
     }
 
     if (codecId != AV_CODEC_ID_NONE) {

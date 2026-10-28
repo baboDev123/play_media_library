@@ -13,6 +13,7 @@ set(SOURCE_FILES
     info_jni.cpp
     media_info_reader.cpp
     thumbnail_extractor.cpp
+    avio_stream_context.cpp
 )
 
 add_library(playme_info SHARED ${SOURCE_FILES})

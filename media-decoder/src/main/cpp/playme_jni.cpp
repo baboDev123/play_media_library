@@ -27,10 +27,15 @@ Java_io_github_playme_media_decoder_PlayMeNativeBridge_isCodecSupported(JNIEnv* 
 
     // Audio formats (LGPL)
     if (mimeStr == "audio/ac3" || mimeStr == "audio/eac3" ||
-        mimeStr == "audio/vnd.dts" || mimeStr == "audio/dts" ||
+        mimeStr == "audio/vnd.dts" || mimeStr == "audio/dts" || mimeStr == "audio/vnd.dts.hd" ||
         mimeStr == "audio/true-hd" || mimeStr == "audio/flac" ||
         mimeStr == "audio/vorbis" || mimeStr == "audio/opus" ||
-        mimeStr == "audio/alac" || mimeStr == "audio/mp4a-latm") {
+        mimeStr == "audio/alac" || mimeStr == "audio/mp4a-latm" ||
+        mimeStr == "audio/mpeg" || mimeStr == "audio/mp3" ||
+        mimeStr == "audio/mpeg-L2" || mimeStr == "audio/mp2" ||
+        mimeStr == "audio/x-ms-wma" || mimeStr == "audio/x-ms-wmapro" ||
+        mimeStr == "audio/3gpp" || mimeStr == "audio/amr-wb" ||
+        mimeStr == "audio/raw" || mimeStr == "audio/g711-alaw" || mimeStr == "audio/g711-mlaw") {
         return JNI_TRUE;
     }
 
@@ -38,7 +43,10 @@ Java_io_github_playme_media_decoder_PlayMeNativeBridge_isCodecSupported(JNIEnv* 
     if (mimeStr == "video/avc" || mimeStr == "video/h264" ||
         mimeStr == "video/hevc" || mimeStr == "video/h265" ||
         mimeStr == "video/x-vnd.on2.vp8" || mimeStr == "video/x-vnd.on2.vp9" ||
-        mimeStr == "video/av01" || mimeStr == "video/mpeg2") {
+        mimeStr == "video/av01" || mimeStr == "video/mpeg2" ||
+        mimeStr == "video/mp4v-es" || mimeStr == "video/wvc1" ||
+        mimeStr == "video/x-ms-wmv" || mimeStr == "video/x-ms-wmv3" ||
+        mimeStr == "video/mjpeg") {
         return JNI_TRUE;
     }
 

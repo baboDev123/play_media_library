@@ -5,92 +5,87 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.InputStream
 
 /**
- * High-performance media metadata extractor.
- * Fully supports Android 10+ Scoped Storage via Content Uris and ParcelFileDescriptors,
- * alongside standard file paths and network streams.
+ * Enterprise media metadata extractor.
+ * Supports:
+ * - Local file paths & URLs
+ * - Android 10+ Scoped Storage (Content Uris)
+ * - Raw FileDescriptors
+ * - Network InputStreams (SMB, FTP, SFTP, HTTP) via custom AVIOContext
  */
 object MediaInfoExtractor {
 
     interface Callback {
         fun onSuccess(info: MediaInfo)
-        fun onError(error: Throwable)
+        fun onError(error: PlayMediaException)
     }
 
     // --- Kotlin Coroutines (Suspend) API ---
 
-    /**
-     * Extracts media metadata from a Content or File Uri (Recommended for Android 10+).
-     */
-    suspend fun extract(context: Context, uri: Uri): MediaInfo? = withContext(Dispatchers.IO) {
+    suspend fun extract(context: Context, uri: Uri): MediaInfo = withContext(Dispatchers.IO) {
         extractSync(context, uri)
     }
 
-    /**
-     * Extracts media metadata directly from a ParcelFileDescriptor.
-     */
-    suspend fun extract(descriptor: ParcelFileDescriptor): MediaInfo? = withContext(Dispatchers.IO) {
+    suspend fun extract(descriptor: ParcelFileDescriptor): MediaInfo = withContext(Dispatchers.IO) {
         extractSync(descriptor)
     }
 
-    /**
-     * Extracts media metadata from a local file path or network URL.
-     */
-    suspend fun extract(filePath: String): MediaInfo? = withContext(Dispatchers.IO) {
+    suspend fun extract(filePath: String): MediaInfo = withContext(Dispatchers.IO) {
         extractSync(filePath)
+    }
+
+    suspend fun extract(inputStream: InputStream, streamLength: Long = -1L): MediaInfo = withContext(Dispatchers.IO) {
+        extractSync(inputStream, streamLength)
     }
 
     // --- Synchronous (Java / Groovy Friendly) API ---
 
-    /**
-     * Synchronously extracts media metadata from a Content or File Uri.
-     */
     @JvmStatic
-    fun extractSync(context: Context, uri: Uri): MediaInfo? {
+    fun extractSync(context: Context, uri: Uri): MediaInfo {
         val scheme = uri.scheme?.lowercase()
         return when {
             scheme == "http" || scheme == "https" -> {
                 extractSync(uri.toString())
             }
             scheme == "file" -> {
-                uri.path?.let { extractSync(it) }
+                val path = uri.path ?: throw PlayMediaException.InvalidDataSourceException("File URI has null path")
+                extractSync(path)
             }
             else -> {
-                // Scoped Storage: content:// or android.resource://
                 try {
                     context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
                         extractSync(pfd)
-                    }
-                } catch (e: Throwable) {
-                    null
+                    } ?: throw PlayMediaException.InvalidDataSourceException("ContentResolver returned null descriptor for $uri")
+                } catch (e: Exception) {
+                    if (e is PlayMediaException) throw e
+                    throw PlayMediaException.InvalidDataSourceException("Failed to open Content URI: ${e.message}")
                 }
             }
         }
     }
 
-    /**
-     * Synchronously extracts media metadata directly from a ParcelFileDescriptor.
-     */
     @JvmStatic
-    fun extractSync(descriptor: ParcelFileDescriptor): MediaInfo? {
-        return try {
-            MediaInfoNativeBridge.nativeParseMediaInfoFd(descriptor.fd)
-        } catch (e: Throwable) {
-            null
-        }
+    fun extractSync(descriptor: ParcelFileDescriptor): MediaInfo {
+        val info = MediaInfoNativeBridge.nativeParseMediaInfoFd(descriptor.fd)
+        return info ?: throw PlayMediaException.CorruptStreamException(-1, "Unable to parse media from FileDescriptor")
+    }
+
+    @JvmStatic
+    fun extractSync(filePath: String): MediaInfo {
+        val info = MediaInfoNativeBridge.nativeParseMediaInfo(filePath)
+        return info ?: throw PlayMediaException.CorruptStreamException(-1, "Unable to parse media at $filePath")
     }
 
     /**
-     * Synchronously extracts media metadata from a file path or URL.
+     * Reads metadata directly from a network InputStream (SMB, FTP, SFTP, HTTP) via native AVIOContext.
      */
     @JvmStatic
-    fun extractSync(filePath: String): MediaInfo? {
-        return try {
-            MediaInfoNativeBridge.nativeParseMediaInfo(filePath)
-        } catch (e: Throwable) {
-            null
-        }
+    @JvmOverloads
+    fun extractSync(inputStream: InputStream, streamLength: Long = -1L): MediaInfo {
+        val info = MediaInfoNativeBridge.nativeParseMediaInfoStream(inputStream, streamLength)
+        return info ?: throw PlayMediaException.NetworkTimeoutException("Failed to probe stream from network InputStream")
     }
 
     // --- Asynchronous Callback (Java / Groovy Friendly) API ---
@@ -99,30 +94,25 @@ object MediaInfoExtractor {
     fun extractAsync(context: Context, uri: Uri, callback: Callback) {
         Thread {
             try {
-                val info = extractSync(context, uri)
-                if (info != null) {
-                    callback.onSuccess(info)
-                } else {
-                    callback.onError(IllegalArgumentException("Unable to parse media for URI: $uri"))
-                }
+                callback.onSuccess(extractSync(context, uri))
+            } catch (e: PlayMediaException) {
+                callback.onError(e)
             } catch (t: Throwable) {
-                callback.onError(t)
+                callback.onError(PlayMediaException.CorruptStreamException(-1, t.message ?: "Unknown error"))
             }
         }.start()
     }
 
     @JvmStatic
-    fun extractAsync(descriptor: ParcelFileDescriptor, callback: Callback) {
+    @JvmOverloads
+    fun extractAsync(inputStream: InputStream, streamLength: Long = -1L, callback: Callback) {
         Thread {
             try {
-                val info = extractSync(descriptor)
-                if (info != null) {
-                    callback.onSuccess(info)
-                } else {
-                    callback.onError(IllegalArgumentException("Unable to parse media from file descriptor"))
-                }
+                callback.onSuccess(extractSync(inputStream, streamLength))
+            } catch (e: PlayMediaException) {
+                callback.onError(e)
             } catch (t: Throwable) {
-                callback.onError(t)
+                callback.onError(PlayMediaException.NetworkTimeoutException(t.message ?: "Network stream failure"))
             }
         }.start()
     }
@@ -131,14 +121,11 @@ object MediaInfoExtractor {
     fun extractAsync(filePath: String, callback: Callback) {
         Thread {
             try {
-                val info = extractSync(filePath)
-                if (info != null) {
-                    callback.onSuccess(info)
-                } else {
-                    callback.onError(IllegalArgumentException("Unable to parse media at $filePath"))
-                }
+                callback.onSuccess(extractSync(filePath))
+            } catch (e: PlayMediaException) {
+                callback.onError(e)
             } catch (t: Throwable) {
-                callback.onError(t)
+                callback.onError(PlayMediaException.CorruptStreamException(-1, t.message ?: "Failed to open media"))
             }
         }.start()
     }
