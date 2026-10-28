@@ -18,38 +18,69 @@ internal object PlayMeNativeBridge {
         }
     }
 
-    /**
-     * Checks if the native library and FFmpeg are successfully initialized.
-     */
     @JvmStatic
     external fun isNativeAvailable(): Boolean
 
-    /**
-     * Returns the underlying FFmpeg version string.
-     */
     @JvmStatic
     external fun getFfmpegVersion(): String
 
-    /**
-     * Checks if a specific codec name (e.g. "ac3", "hevc", "dts") is supported.
-     */
     @JvmStatic
     external fun isCodecSupported(codecMime: String): Boolean
 
-    // --- Video Decoding & Direct Rendering ---
-    @JvmStatic
-    external fun nativeInitVideoDecoder(mimeType: String, surface: Surface?, width: Int, height: Int): Long
+    // --- Video Decoding & Media3 Surface Rendering ---
 
+    /** Point b: extradata (SPS/PPS) initialization */
+    @JvmStatic
+    external fun nativeInitVideoDecoder(
+        mimeType: String,
+        extraData: ByteArray?,
+        width: Int,
+        height: Int
+    ): Long
+
+    /** Point f: Thread-safe surface update */
     @JvmStatic
     external fun nativeSetVideoSurface(handle: Long, surface: Surface?): Boolean
 
+    /** Point e: Multi-frame drain packet sender */
     @JvmStatic
-    external fun nativeDecodeVideoFrame(handle: Long, inputData: ByteBuffer, inputSize: Int, timeUs: Long): Int
+    external fun nativeSendVideoPacket(
+        handle: Long,
+        inputData: ByteBuffer?,
+        inputSize: Int,
+        timeUs: Long
+    ): Int
+
+    /** Point c: Receive YUV frame metadata for Media3 */
+    @JvmStatic
+    external fun nativeReceiveVideoFrame(
+        handle: Long,
+        outputBuffer: Any,
+        outputMode: Int,
+        metadata: LongArray // [0]=pts, [1]=width, [2]=height, [3]=frameHandle
+    ): Int
+
+    /** Point c & f: Render frame when Media3 clock triggers presentation */
+    @JvmStatic
+    external fun nativeRenderVideoFrameToSurface(
+        handle: Long,
+        surface: Surface?,
+        frameHandle: Long
+    ): Boolean
+
+    /** Point c: Release frame when displayed or dropped by Media3 */
+    @JvmStatic
+    external fun nativeReleaseVideoFrame(handle: Long, frameHandle: Long)
+
+    /** Point d: Seek flush */
+    @JvmStatic
+    external fun nativeFlushVideoDecoder(handle: Long)
 
     @JvmStatic
     external fun nativeReleaseVideoDecoder(handle: Long)
 
     // --- Audio Decoding ---
+
     @JvmStatic
     external fun nativeInitAudioDecoder(mimeType: String, sampleRate: Int, channelCount: Int): Long
 
@@ -68,4 +99,3 @@ internal object PlayMeNativeBridge {
     @JvmStatic
     external fun nativeReleaseAudioDecoder(handle: Long)
 }
-

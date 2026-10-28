@@ -1,19 +1,25 @@
 #include "playme_video.h"
+#include <algorithm>
 
-PlayMeVideoDecoderNative::PlayMeVideoDecoderNative(const std::string& mimeType, int width, int height)
-    : mMimeType(mimeType),
-      mWidth(width),
-      mHeight(height),
-      mNativeWindow(nullptr)
+PlayMeVideoDecoderNative::PlayMeVideoDecoderNative(
+    const std::string& mimeType,
+    const uint8_t* extraData,
+    size_t extraDataSize,
+    int width,
+    int height
+) : mMimeType(mimeType),
+    mWidth(width),
+    mHeight(height),
+    mNativeWindow(nullptr)
 #ifndef PLAYME_STUB_FFMPEG
-      , mCodec(nullptr),
-      mCodecContext(nullptr),
-      mFrame(nullptr),
-      mRgbFrame(nullptr),
-      mPacket(nullptr),
-      mSwsContext(nullptr)
+    , mCodec(nullptr),
+    mCodecContext(nullptr),
+    mPacket(nullptr),
+    mSwsContext(nullptr)
 #endif
 {
+    std::lock_guard<std::mutex> lock(mMutex);
+
 #ifndef PLAYME_STUB_FFMPEG
     AVCodecID codecId = AV_CODEC_ID_NONE;
     if (mimeType == "video/avc" || mimeType == "video/h264") {
@@ -37,17 +43,29 @@ PlayMeVideoDecoderNative::PlayMeVideoDecoderNative(const std::string& mimeType, 
             if (mCodecContext) {
                 mCodecContext->width = width;
                 mCodecContext->height = height;
-                // Enable multi-threaded decoding
+
+                // Point b: extradata (SPS/PPS) must be provided before avcodec_open2
+                if (extraData && extraDataSize > 0) {
+                    mCodecContext->extradata = static_cast<uint8_t*>(
+                        av_mallocz(extraDataSize + AV_INPUT_BUFFER_PADDING_SIZE)
+                    );
+                    if (mCodecContext->extradata) {
+                        memcpy(mCodecContext->extradata, extraData, extraDataSize);
+                        mCodecContext->extradata_size = static_cast<int>(extraDataSize);
+                    }
+                }
+
+                // Enable multi-threading for fast decode
                 mCodecContext->thread_count = 0; // Auto-detect CPU cores
                 if (mCodec->capabilities & AV_CODEC_CAP_FRAME_THREADS) {
                     mCodecContext->thread_type = FF_THREAD_FRAME;
                 } else if (mCodec->capabilities & AV_CODEC_CAP_SLICE_THREADS) {
                     mCodecContext->thread_type = FF_THREAD_SLICE;
                 }
+
                 avcodec_open2(mCodecContext, mCodec, nullptr);
             }
         }
-        mFrame = av_frame_alloc();
         mPacket = av_packet_alloc();
     }
 #endif
@@ -57,7 +75,9 @@ PlayMeVideoDecoderNative::~PlayMeVideoDecoderNative() {
     release();
 }
 
+// Point f: Thread-safe Surface Lock
 bool PlayMeVideoDecoderNative::setSurface(JNIEnv* env, jobject surface) {
+    std::lock_guard<std::mutex> lock(mMutex);
     if (mNativeWindow) {
         ANativeWindow_release(mNativeWindow);
         mNativeWindow = nullptr;
@@ -72,45 +92,102 @@ bool PlayMeVideoDecoderNative::setSurface(JNIEnv* env, jobject surface) {
     return true;
 }
 
-int PlayMeVideoDecoderNative::decodeFrame(const uint8_t* data, size_t size, int64_t timeUs) {
+// Point e: Multi-frame drain loop (Ek packet se nikalne wale saare frames lena)
+int PlayMeVideoDecoderNative::sendPacket(const uint8_t* data, size_t size, int64_t timeUs) {
+    std::lock_guard<std::mutex> lock(mMutex);
 #ifndef PLAYME_STUB_FFMPEG
-    if (!mCodecContext || !mFrame || !mPacket) return -1;
+    if (!mCodecContext || !mPacket) return -1;
 
-    mPacket->data = const_cast<uint8_t*>(data);
-    mPacket->size = static_cast<int>(size);
-    mPacket->pts = timeUs;
+    if (data && size > 0) {
+        mPacket->data = const_cast<uint8_t*>(data);
+        mPacket->size = static_cast<int>(size);
+        mPacket->pts = timeUs;
+    } else {
+        // End of stream flush packet
+        mPacket->data = nullptr;
+        mPacket->size = 0;
+    }
 
     int ret = avcodec_send_packet(mCodecContext, mPacket);
-    if (ret < 0 && ret != AVERROR(EAGAIN)) {
+    if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
         return ret;
     }
 
-    ret = avcodec_receive_frame(mCodecContext, mFrame);
-    if (ret == 0) {
-        renderFrameDirect();
-        return 0;
+    // Drain loop: fetch ALL available frames produced by this packet
+    while (true) {
+        AVFrame* frame = av_frame_alloc();
+        ret = avcodec_receive_frame(mCodecContext, frame);
+        if (ret == 0) {
+            mFrameQueue.push(frame);
+        } else {
+            av_frame_free(&frame);
+            break;
+        }
     }
-    return ret == AVERROR(EAGAIN) ? 0 : ret;
+
+    return mFrameQueue.empty() ? AVERROR(EAGAIN) : 0;
 #else
     return 0;
 #endif
 }
 
-void PlayMeVideoDecoderNative::renderFrameDirect() {
+// Point c: Return decoded YUV frame to Media3 output buffer
+int PlayMeVideoDecoderNative::receiveYuvFrame(
+    JNIEnv* env,
+    jobject jOutputBuffer,
+    jint outputMode,
+    jlongArray outMetadata
+) {
+    std::lock_guard<std::mutex> lock(mMutex);
 #ifndef PLAYME_STUB_FFMPEG
-    if (!mNativeWindow || !mFrame) return;
+    if (mFrameQueue.empty()) {
+        return AVERROR(EAGAIN);
+    }
 
-    int width = mFrame->width;
-    int height = mFrame->height;
-    if (width <= 0 || height <= 0) return;
+    AVFrame* frame = mFrameQueue.front();
+    mFrameQueue.pop();
+    mActiveFrames.push_back(frame);
 
-    ANativeWindow_setBuffersGeometry(mNativeWindow, width, height, WINDOW_FORMAT_RGBA_8888);
+    int64_t pts = frame->pts != AV_NOPTS_VALUE ? frame->pts : 0;
+    int width = frame->width;
+    int height = frame->height;
+    int64_t handle = reinterpret_cast<int64_t>(frame);
+
+    jlong metadata[4] = { pts, static_cast<jlong>(width), static_cast<jlong>(height), handle };
+    env->SetLongArrayRegion(outMetadata, 0, 4, metadata);
+
+    return 0;
+#else
+    return 0;
+#endif
+}
+
+// Point c & f: Media3 calls this at the exact synchronized presentation timestamp!
+bool PlayMeVideoDecoderNative::renderFrameToSurface(JNIEnv* env, jobject surface, jlong frameHandle) {
+    std::lock_guard<std::mutex> lock(mMutex);
+#ifndef PLAYME_STUB_FFMPEG
+    auto* frame = reinterpret_cast<AVFrame*>(frameHandle);
+    if (!frame) return false;
+
+    ANativeWindow* window = nullptr;
+    if (surface) {
+        window = ANativeWindow_fromSurface(env, surface);
+    } else {
+        window = mNativeWindow;
+    }
+    if (!window) return false;
+
+    int width = frame->width;
+    int height = frame->height;
+    if (width <= 0 || height <= 0) return false;
+
+    ANativeWindow_setBuffersGeometry(window, width, height, WINDOW_FORMAT_RGBA_8888);
 
     ANativeWindow_Buffer windowBuffer;
-    if (ANativeWindow_lock(mNativeWindow, &windowBuffer, nullptr) == 0) {
+    if (ANativeWindow_lock(window, &windowBuffer, nullptr) == 0) {
         mSwsContext = sws_getCachedContext(
             mSwsContext,
-            width, height, static_cast<AVPixelFormat>(mFrame->format),
+            width, height, static_cast<AVPixelFormat>(frame->format),
             width, height, AV_PIX_FMT_RGBA,
             SWS_FAST_BILINEAR, nullptr, nullptr, nullptr
         );
@@ -121,8 +198,8 @@ void PlayMeVideoDecoderNative::renderFrameDirect() {
 
             sws_scale(
                 mSwsContext,
-                mFrame->data,
-                mFrame->linesize,
+                frame->data,
+                frame->linesize,
                 0,
                 height,
                 destData,
@@ -130,23 +207,69 @@ void PlayMeVideoDecoderNative::renderFrameDirect() {
             );
         }
 
-        ANativeWindow_unlockAndPost(mNativeWindow);
+        ANativeWindow_unlockAndPost(window);
     }
+
+    if (surface && window != mNativeWindow) {
+        ANativeWindow_release(window);
+    }
+    return true;
+#else
+    return true;
+#endif
+}
+
+// Point c: Called by Media3 when buffer is displayed or dropped
+void PlayMeVideoDecoderNative::releaseFrame(jlong frameHandle) {
+    std::lock_guard<std::mutex> lock(mMutex);
+#ifndef PLAYME_STUB_FFMPEG
+    auto* frame = reinterpret_cast<AVFrame*>(frameHandle);
+    if (!frame) return;
+
+    auto it = std::find(mActiveFrames.begin(), mActiveFrames.end(), frame);
+    if (it != mActiveFrames.end()) {
+        mActiveFrames.erase(it);
+    }
+    av_frame_free(&frame);
+#endif
+}
+
+// Point d: Seek par Flush (clear codec buffers and all frame queues)
+void PlayMeVideoDecoderNative::flush() {
+    std::lock_guard<std::mutex> lock(mMutex);
+#ifndef PLAYME_STUB_FFMPEG
+    if (mCodecContext) {
+        avcodec_flush_buffers(mCodecContext);
+    }
+    clearFrameQueueLocked();
+#endif
+}
+
+void PlayMeVideoDecoderNative::clearFrameQueueLocked() {
+#ifndef PLAYME_STUB_FFMPEG
+    while (!mFrameQueue.empty()) {
+        AVFrame* frame = mFrameQueue.front();
+        mFrameQueue.pop();
+        av_frame_free(&frame);
+    }
+    for (AVFrame* frame : mActiveFrames) {
+        av_frame_free(&frame);
+    }
+    mActiveFrames.clear();
 #endif
 }
 
 void PlayMeVideoDecoderNative::release() {
+    std::lock_guard<std::mutex> lock(mMutex);
     if (mNativeWindow) {
         ANativeWindow_release(mNativeWindow);
         mNativeWindow = nullptr;
     }
 #ifndef PLAYME_STUB_FFMPEG
+    clearFrameQueueLocked();
     if (mSwsContext) {
         sws_freeContext(mSwsContext);
         mSwsContext = nullptr;
-    }
-    if (mFrame) {
-        av_frame_free(&mFrame);
     }
     if (mPacket) {
         av_packet_free(&mPacket);
@@ -156,4 +279,3 @@ void PlayMeVideoDecoderNative::release() {
     }
 #endif
 }
-

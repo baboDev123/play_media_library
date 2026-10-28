@@ -15,6 +15,13 @@ import androidx.media3.exoplayer.RendererCapabilities
 import androidx.media3.exoplayer.video.DecoderVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 
+/**
+ * Media3 Custom Video Renderer powered by PlayMedia FFmpeg Engine.
+ *
+ * Implements:
+ * - Point c: Media3 timed surface presentation & automatic frame drop handling
+ * - Point f: Thread-safe dynamic surface switching
+ */
 @OptIn(UnstableApi::class)
 class PlayMeVideoRenderer @JvmOverloads constructor(
     allowedJoiningTimeMs: Long = 5000,
@@ -45,23 +52,27 @@ class PlayMeVideoRenderer @JvmOverloads constructor(
         }
     }
 
-    override fun createDecoder(format: Format, cryptoConfig: CryptoConfig?): Decoder<DecoderInputBuffer, VideoDecoderOutputBuffer, PlayMeDecoderException> {
+    override fun createDecoder(
+        format: Format,
+        cryptoConfig: CryptoConfig?
+    ): Decoder<DecoderInputBuffer, VideoDecoderOutputBuffer, PlayMeDecoderException> {
         val decoder = PlayMeVideoDecoder(format)
         decoder.setOutputSurface(outputSurface)
         activeDecoder = decoder
         return decoder
     }
 
+    // Point c: Media3 commands rendering at the exact synchronized PTS!
     override fun renderOutputBufferToSurface(outputBuffer: VideoDecoderOutputBuffer, surface: Surface) {
-        // Direct surface rendering is executed directly in C++ via ANativeWindow during decode.
-        // Release buffer when completed.
+        activeDecoder?.renderFrameToSurface(outputBuffer, surface)
         outputBuffer.release()
     }
 
     override fun setDecoderOutputMode(outputMode: Int) {
-        // Handled internally in native surface mode
+        // Output mode managed by native frame dispatcher
     }
 
+    // Point f: Thread-safe dynamic surface changes
     override fun handleMessage(messageType: Int, message: Any?) {
         when (messageType) {
             MSG_SET_VIDEO_OUTPUT -> {
@@ -73,4 +84,3 @@ class PlayMeVideoRenderer @JvmOverloads constructor(
         }
     }
 }
-
