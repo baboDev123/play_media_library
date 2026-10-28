@@ -11,3 +11,4 @@ sealed class PlayMediaException(message: String, cause: Throwable? = null) : Exc
     class NetworkTimeoutException(message: String = "Network read timed out or connection dropped") : PlayMediaException(message)
     class InvalidDataSourceException(message: String = "Unable to open or read from media data source") : PlayMediaException(message)
 }
+

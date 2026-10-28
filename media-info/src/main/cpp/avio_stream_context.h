@@ -21,3 +21,4 @@ public:
     static void closeContext(AVFormatContext* formatCtx);
 #endif
 };
+
