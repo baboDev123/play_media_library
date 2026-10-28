@@ -17,7 +17,7 @@ class FfmpegAudioDecoder internal constructor(format: Format) :
     ) {
 
     private val handle: Long = try {
-        AudioNative.create(format.sampleMimeType.orEmpty(), extraDataOf(format), format.sampleRate, format.channelCount)
+        AudioNative.create(format.sampleMimeType.orEmpty(), extraDataOf(format), format.sampleRate, format.channelCount, primingSamplesOf(format))
     } catch (error: IllegalStateException) {
         throw PlayMeDecoderException(error.message ?: "Couldn't open the FFmpeg audio decoder", error)
     }
@@ -75,6 +75,8 @@ class FfmpegAudioDecoder internal constructor(format: Format) :
     internal companion object {
         private const val BUFFERS = 16
         private const val DEFAULT_INPUT_SIZE = 64 * 1024
+        private const val OPUS_RATE = 48_000
+        private const val MAX_USUAL_PRE_SKIP = 3_840
 
         /** The codec configuration FFmpeg expects, built from Media3's initialization data. */
         fun extraDataOf(format: Format): ByteArray? {
@@ -86,6 +88,23 @@ class FfmpegAudioDecoder internal constructor(format: Format) :
                 MimeTypes.AUDIO_VORBIS -> if (parts.size >= 2) vorbisHeaders(parts[0], parts[1]) else null
                 else -> null
             }
+        }
+
+        /**
+         * Opus's pre-skip, which Media3 passes as the codec delay in nanoseconds (the second
+         * piece of initialization data); Opus always decodes at 48 kHz.
+         *
+         * From MP4 files Media3 copies the pre-skip without turning MP4's big-endian into
+         * OpusHead's little-endian order, so 312 arrives as 14337. A value beyond the usual
+         * 80 ms whose bytes swapped give a usual one is taken to be that.
+         */
+        fun primingSamplesOf(format: Format): Int {
+            if (format.sampleMimeType != MimeTypes.AUDIO_OPUS) return 0
+            val delay = format.initializationData.getOrNull(1)?.takeIf { it.size == 8 } ?: return 0
+            val nanos = ByteBuffer.wrap(delay).order(ByteOrder.nativeOrder()).long
+            val samples = (nanos * OPUS_RATE / 1_000_000_000).toInt().coerceIn(0, 0xFFFF)
+            val swapped = ((samples and 0xFF) shl 8) or (samples shr 8)
+            return if (samples > MAX_USUAL_PRE_SKIP && swapped <= MAX_USUAL_PRE_SKIP) swapped else samples
         }
 
         /** FFmpeg reads ALAC's "magic cookie" as a complete 'alac' atom. */

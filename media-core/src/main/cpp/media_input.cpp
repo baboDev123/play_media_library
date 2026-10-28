@@ -15,6 +15,8 @@ constexpr int kIoBufferSize = 64 * 1024;
 class MediaInput::Reader {
 public:
     virtual ~Reader() = default;
+    /** When reading gives up (av_gettime_relative() time), or 0 for never. */
+    int64_t deadlineUs = 0;
     virtual int read(uint8_t* into, int size) = 0;
     /** The new position, or a negative value when the source can't seek there. */
     virtual int64_t seek(int64_t offset, int whence) = 0;
@@ -127,7 +129,10 @@ private:
 };
 
 int readPacket(void* opaque, uint8_t* into, int size) {
-    return static_cast<MediaInput::Reader*>(opaque)->read(into, size);
+    auto* reader = static_cast<MediaInput::Reader*>(opaque);
+    // FFmpeg checks its interrupt callback only now and then; a slow source is cut off here too.
+    if (reader->deadlineUs > 0 && av_gettime_relative() > reader->deadlineUs) return AVERROR_EXIT;
+    return reader->read(into, size);
 }
 
 int64_t seekTo(void* opaque, int64_t offset, int whence) {
@@ -152,6 +157,7 @@ MediaInput* MediaInput::open(Reader* reader, int64_t timeoutMs, std::string* err
     auto* input = new MediaInput();
     input->reader_ = reader;
     input->deadlineUs_ = timeoutMs > 0 ? av_gettime_relative() + timeoutMs * 1000 : 0;
+    reader->deadlineUs = input->deadlineUs_;
 
     auto* buffer = static_cast<uint8_t*>(av_malloc(kIoBufferSize));
     input->io_ = buffer != nullptr ? avio_alloc_context(buffer, kIoBufferSize, 0, reader, readPacket, nullptr, seekTo) : nullptr;

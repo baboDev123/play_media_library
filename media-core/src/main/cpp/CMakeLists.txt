@@ -22,13 +22,11 @@ add_library(playmedia SHARED
 
 target_include_directories(playmedia PRIVATE "${DEPS}/include")
 target_compile_features(playmedia PRIVATE cxx_std_17)
-# Symbols on API levels above minSdk are weak, guarded by __builtin_available.
 target_compile_options(playmedia PRIVATE
-    -O3 -fvisibility=hidden -ffunction-sections -fdata-sections
-    -D__ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__ -Werror=unguarded-availability)
+    -O3 -fvisibility=hidden -ffunction-sections -fdata-sections)
 target_link_options(playmedia PRIVATE
     -Wl,--gc-sections -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384 -Wl,--build-id=sha1)
 # FFmpeg's libraries depend on each other in this order.
 target_link_libraries(playmedia PRIVATE
     avformat avcodec swscale swresample avutil dav1d
-    android jnigraphics log z m)
+    android jnigraphics log dl z m)

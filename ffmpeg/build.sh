@@ -41,7 +41,7 @@ export PATH="$TOOLS/bin:$PATH"
 fetch() { # url, directory it unpacks to
     if [ ! -d "$SOURCES/$2" ]; then
         mkdir -p "$SOURCES"
-        curl -fL --retry 3 "$1" -o "$SOURCES/$2.tar.xz"
+        curl -fsSL --retry 3 "$1" -o "$SOURCES/$2.tar.xz"
         tar -xf "$SOURCES/$2.tar.xz" -C "$SOURCES"
     fi
 }
@@ -107,7 +107,7 @@ EOF
         --disable-everything --disable-avdevice --disable-avfilter --disable-postproc
         --enable-avcodec --enable-avformat --enable-swresample --enable-swscale
         --enable-libdav1d --enable-protocol=file
-        "${ASM_FLAGS[@]}"
+        ${ASM_FLAGS[@]+"${ASM_FLAGS[@]}"}
     )
     for d in $VIDEO_DECODERS $AUDIO_DECODERS; do CONFIG+=(--enable-decoder="$d"); done
     for p in $PARSERS; do CONFIG+=(--enable-parser="$p"); done

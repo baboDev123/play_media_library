@@ -1,5 +1,6 @@
 #include "common.h"
 
+#include <cstdarg>
 #include <cstring>
 
 namespace playmedia {
@@ -61,6 +62,13 @@ const AVCodec* find(const MimeCodec (&table)[N], const char* mimeType) {
     return nullptr;
 }
 
+// FFmpeg's own messages go to logcat, so decoding problems in the field can be diagnosed.
+void logToLogcat(void*, int level, const char* format, va_list arguments) {
+    if (level > av_log_get_level()) return;
+    const int priority = level <= AV_LOG_ERROR ? ANDROID_LOG_ERROR : level <= AV_LOG_WARNING ? ANDROID_LOG_WARN : ANDROID_LOG_DEBUG;
+    __android_log_vprint(priority, "PlayMedia/FFmpeg", format, arguments);
+}
+
 }  // namespace
 
 const AVCodec* videoDecoderFor(const char* mimeType) { return find(kVideo, mimeType); }
@@ -100,7 +108,8 @@ void throwIllegalState(JNIEnv* env, const std::string& message) {
 
 extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*) {
     playmedia::gVm = vm;
-    av_log_set_level(AV_LOG_ERROR);
+    av_log_set_level(AV_LOG_WARNING);
+    av_log_set_callback(playmedia::logToLogcat);
     return JNI_VERSION_1_6;
 }
 

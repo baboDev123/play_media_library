@@ -50,8 +50,11 @@ internal object AudioNative {
         PlayMediaNative.requireAvailable()
     }
 
-    /** Throws IllegalStateException when FFmpeg can't open a decoder for the format. */
-    @JvmStatic external fun create(mimeType: String, extraData: ByteArray?, sampleRate: Int, channels: Int): Long
+    /**
+     * Throws IllegalStateException when FFmpeg can't open a decoder for the format.
+     * [skipSamples] are dropped from the start of the output.
+     */
+    @JvmStatic external fun create(mimeType: String, extraData: ByteArray?, sampleRate: Int, channels: Int, skipSamples: Int): Long
 
     @JvmStatic external fun name(handle: Long): String
 

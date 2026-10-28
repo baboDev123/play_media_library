@@ -8,6 +8,7 @@
 #include <android/data_space.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
+#include <dlfcn.h>
 
 #include "common.h"
 
@@ -37,6 +38,13 @@ void detach(JNIEnv* env, FrameWindow* target) {
     target->width = 0;
     target->height = 0;
     target->dataSpace = -1;
+}
+
+// In libnativewindow from Android 9; looked up at run time, as that library is missing before 8.
+using SetDataSpace = int32_t (*)(ANativeWindow*, int32_t);
+SetDataSpace setDataSpaceFunction() {
+    static const auto function = reinterpret_cast<SetDataSpace>(dlsym(RTLD_DEFAULT, "ANativeWindow_setBuffersDataSpace"));
+    return function;
 }
 
 int align16(int value) { return (value + 15) & ~15; }
@@ -74,7 +82,7 @@ bool prepare(JNIEnv* env, FrameWindow* target, jobject surface, const AVFrame* f
     }
     const int32_t dataSpace = dataSpaceOf(frame);
     if (dataSpace != target->dataSpace) {
-        if (__builtin_available(android 28, *)) ANativeWindow_setBuffersDataSpace(target->window, dataSpace);
+        if (SetDataSpace setDataSpace = setDataSpaceFunction()) setDataSpace(target->window, dataSpace);
         target->dataSpace = dataSpace;
     }
     return true;
