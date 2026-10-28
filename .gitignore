@@ -13,3 +13,4 @@ ffmpeg/sources/
 ffmpeg/build/
 ffmpeg/output/
 ffmpeg/.tools/
+.kotlin/
