@@ -4,18 +4,23 @@ import android.content.Context
 import android.os.Handler
 import android.os.HandlerThread
 import android.view.Surface
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.DecoderCounters
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import io.github.playme.media.decoder.DecoderManager
 import io.github.playme.media.decoder.DecoderMode
 import io.github.playme.media.decoder.PlayMeRenderersFactory
 import io.github.playme.media.decoder.SubtitleTiming
+import io.github.playme.media.extractor.FfmpegFallback
+import io.github.playme.media.extractor.PlayMeExtractorsFactory
 import java.io.File
 import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
@@ -34,6 +39,9 @@ data class PlayResult(
     val renderedFrames: Int,
     val pcmBytes: Long,
     val error: PlaybackException?,
+    /** Ids of the first video and audio formats: "playmedia/<n>" when FFmpeg read the container. */
+    val videoFormatId: String? = null,
+    val audioFormatId: String? = null,
 )
 
 /** Plays test media to the end on a player thread of its own, as an app would. */
@@ -48,8 +56,14 @@ class TestPlayer(private val context: Context) {
         decoderManager: DecoderManager = DecoderManager(mode, mode),
         /** Run on the player thread this many milliseconds after playback starts. */
         actions: List<Pair<Long, (ExoPlayer) -> Unit>> = emptyList(),
+        /** Read the container with FFmpeg rather than Media3. */
+        ffmpegExtractor: Boolean = false,
         timeoutSeconds: Long = 90,
     ): PlayResult {
+        val uri = android.net.Uri.fromFile(file)
+        if (ffmpegExtractor) FfmpegFallback.prefer(uri) else FfmpegFallback.forget(uri)
+        var videoFormatId: String? = null
+        var audioFormatId: String? = null
         val thread = HandlerThread("TestPlayer").apply { start() }
         val handler = Handler(thread.looper)
         val pcmBytes = AtomicLong()
@@ -71,11 +85,22 @@ class TestPlayer(private val context: Context) {
                         }
                     }
             }
-            player = ExoPlayer.Builder(context, renderers).setLooper(thread.looper).build()
+            player = ExoPlayer.Builder(context, renderers)
+                .setMediaSourceFactory(DefaultMediaSourceFactory(context, PlayMeExtractorsFactory(context)))
+                .setLooper(thread.looper)
+                .build()
             decoderManager.attach(player)
             player.addAnalyticsListener(object : AnalyticsListener {
                 override fun onVideoDecoderInitialized(eventTime: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
                     videoDecoders += decoderName
+                }
+
+                override fun onVideoInputFormatChanged(eventTime: AnalyticsListener.EventTime, format: Format, decoderReuseEvaluation: DecoderReuseEvaluation?) {
+                    if (videoFormatId == null) videoFormatId = format.id
+                }
+
+                override fun onAudioInputFormatChanged(eventTime: AnalyticsListener.EventTime, format: Format, decoderReuseEvaluation: DecoderReuseEvaluation?) {
+                    if (audioFormatId == null) audioFormatId = format.id
                 }
 
                 override fun onAudioTrackInitialized(eventTime: AnalyticsListener.EventTime, audioTrackConfig: AudioSink.AudioTrackConfig) {
@@ -128,6 +153,8 @@ class TestPlayer(private val context: Context) {
             renderedFrames = counters?.renderedOutputBufferCount ?: 0,
             pcmBytes = pcmBytes.get(),
             error = error,
+            videoFormatId = videoFormatId,
+            audioFormatId = audioFormatId,
         )
     }
 }

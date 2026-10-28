@@ -19,5 +19,6 @@ rootProject.name = "playme-media"
 include(":media-core")
 include(":media-decoder")
 include(":media-info")
+include(":media-extractor")
 include(":media-tests")
 

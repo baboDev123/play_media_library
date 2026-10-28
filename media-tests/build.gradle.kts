@@ -30,6 +30,7 @@ android {
 dependencies {
     androidTestImplementation(project(":media-decoder"))
     androidTestImplementation(project(":media-info"))
+    androidTestImplementation(project(":media-extractor"))
     androidTestImplementation(libs.androidx.media3.exoplayer)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)

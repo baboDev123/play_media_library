@@ -18,7 +18,8 @@ add_library(playmedia SHARED
     frame_window.cpp
     audio_decoder.cpp
     media_input.cpp
-    media_probe.cpp)
+    media_probe.cpp
+    demuxer.cpp)
 
 target_include_directories(playmedia PRIVATE "${DEPS}/include")
 target_compile_features(playmedia PRIVATE cxx_std_17)

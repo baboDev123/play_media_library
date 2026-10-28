@@ -27,6 +27,8 @@ constexpr MimeCodec kVideo[] = {
     {"video/3gpp", AV_CODEC_ID_H263},
     {"video/wvc1", AV_CODEC_ID_VC1},
     {"video/mjpeg", AV_CODEC_ID_MJPEG},
+    // Not a Media3 type: what FfmpegExtractor gives Windows Media Video 9.
+    {"video/x-ms-wmv", AV_CODEC_ID_WMV3},
 };
 
 constexpr MimeCodec kAudio[] = {

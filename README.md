@@ -16,6 +16,7 @@ Min SDK 23 · Media3 1.11.1 · arm64-v8a, armeabi-v7a, x86_64, x86 · 16 KB page
 | `media-core` | The native engine: one `libplaymedia.so` with FFmpeg and dav1d linked in statically. Pulled in by the other two. |
 | `media-decoder` | Media3 renderers: `PlayMeRenderersFactory`, `DecoderManager`, `DecoderMode`, `SubtitleTiming`, `PlayMeVideoRenderer`, `PlayMeAudioRenderer`, `DecoderController` |
 | `media-info` | `MediaInfoExtractor`, `ThumbnailExtractor` |
+| `media-extractor` | `PlayMeExtractorsFactory`, `FfmpegExtractor`, `FfmpegFallback`: FFmpeg reading containers Media3 can't |
 
 ## Setup
 
@@ -33,6 +34,7 @@ dependencyResolutionManagement {
 dependencies {
     implementation("com.github.baboDev123.play_media_library:media-decoder:<version>")
     implementation("com.github.baboDev123.play_media_library:media-info:<version>")
+    implementation("com.github.baboDev123.play_media_library:media-extractor:<version>")
 }
 ```
 
@@ -93,6 +95,28 @@ unplayed; the app decides what to fall back to.
 `DecoderController` instead rebuilds the player for each change, carrying over position,
 play/pause, speed and track selection, for apps without a media session.
 
+## Containers Media3 can't read
+
+```kotlin
+val sources = DefaultMediaSourceFactory(context, PlayMeExtractorsFactory(context))
+val player = ExoPlayer.Builder(context, renderers).setMediaSourceFactory(sources).build()
+```
+
+Media3's extractors still read every file they can. For local files (file and content URIs)
+FFmpeg comes in:
+
+- **after** them, for containers none of them recognises;
+- **before** them, for MP4s whose index is larger than 40 MB. Media3 keeps the whole index in
+  the Java heap: a 27-hour recording with a 114 MB index needed about 230 MB and failed with
+  `OutOfMemoryError` on a 256 MB heap. FFmpeg keeps it in native memory (the same file plays
+  with 5–16 MB of Java heap);
+- **before** them, for files the app marked after Media3 failed on them:
+  `FfmpegFallback.prefer(uri)`, then `player.prepare()`.
+
+FFmpeg demuxes; decoding still goes through the renderers (device decoders or FFmpeg's), so a
+file read this way plays like any other. Formats from FFmpeg have ids `playmedia/<stream>`.
+Video and audio are read; subtitle streams inside such files are not yet.
+
 ## Media info
 
 ```kotlin
@@ -136,9 +160,11 @@ functions are `@JvmStatic` with `@JvmOverloads`.
 ## Tests
 
 - `./gradlew :media-decoder:testDebugUnitTest`: subtitle timing
+- `./gradlew :media-extractor:testDebugUnitTest`: MP4 index sizing
 - `./gradlew :media-tests:connectedDebugAndroidTest`: plays AndroidX Media's sample media on a
   device. FFmpeg must give as many video frames as the device's own decoder, the full length of
-  audio, and on screen look like the device decoder's picture. It also checks media info from every kind of input, thumbnails, timeouts, and that
+  audio, and on screen look like the device decoder's picture; FFmpeg must read MP4, Matroska,
+  WebM, MPEG-TS, AVI, FLV, 3GP, AMR and FLAC files to the same frames and audio as Media3. It also checks media info from every kind of input, thumbnails, timeouts, and that
   native memory stays flat over repeated use.
 
 ## Licences
