@@ -1,6 +1,7 @@
 package io.github.playme.media.info
 
 import android.content.Context
+import android.media.MediaDataSource
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.Dispatchers
@@ -8,125 +9,97 @@ import kotlinx.coroutines.withContext
 import java.io.InputStream
 
 /**
- * Enterprise media metadata extractor.
- * Supports:
- * - Local file paths & URLs
- * - Android 10+ Scoped Storage (Content Uris)
- * - Raw FileDescriptors
- * - Network InputStreams (SMB, FTP, SFTP, HTTP) via custom AVIOContext
+ * Reads a container's facts: its streams (codecs, resolution, HDR, languages...), chapters,
+ * attachments and cover art. Every input is read with seeking, so formats with their index at
+ * the end (MP4) work too; a read that takes longer than [DEFAULT_TIMEOUT_MS] gives up.
+ *
+ * The suspending functions run on [Dispatchers.IO]; the `Sync` ones block the calling thread.
+ * All of them throw [PlayMediaException] when the media can't be read.
  */
 object MediaInfoExtractor {
+
+    const val DEFAULT_TIMEOUT_MS = 15_000L
 
     interface Callback {
         fun onSuccess(info: MediaInfo)
         fun onError(error: PlayMediaException)
     }
 
-    // --- Kotlin Coroutines (Suspend) API ---
+    // --- Suspending API ---
 
-    suspend fun extract(context: Context, uri: Uri): MediaInfo = withContext(Dispatchers.IO) {
-        extractSync(context, uri)
-    }
+    suspend fun extract(context: Context, uri: Uri): MediaInfo = withContext(Dispatchers.IO) { extractSync(context, uri) }
 
-    suspend fun extract(descriptor: ParcelFileDescriptor): MediaInfo = withContext(Dispatchers.IO) {
-        extractSync(descriptor)
-    }
+    suspend fun extract(descriptor: ParcelFileDescriptor): MediaInfo = withContext(Dispatchers.IO) { extractSync(descriptor) }
 
-    suspend fun extract(filePath: String): MediaInfo = withContext(Dispatchers.IO) {
-        extractSync(filePath)
-    }
+    suspend fun extract(filePath: String): MediaInfo = withContext(Dispatchers.IO) { extractSync(filePath) }
 
-    suspend fun extract(inputStream: InputStream, streamLength: Long = -1L): MediaInfo = withContext(Dispatchers.IO) {
-        extractSync(inputStream, streamLength)
-    }
+    /** Reads network or other random-access media. */
+    suspend fun extract(source: MediaDataSource): MediaInfo = withContext(Dispatchers.IO) { extractSync(source) }
 
-    // --- Synchronous (Java / Groovy Friendly) API ---
+    /** Reads a forward-only stream; see [extractSync] for its limits. */
+    suspend fun extract(inputStream: InputStream, streamLength: Long = -1L): MediaInfo =
+        withContext(Dispatchers.IO) { extractSync(inputStream, streamLength) }
+
+    // --- Blocking API ---
 
     @JvmStatic
-    fun extractSync(context: Context, uri: Uri): MediaInfo {
-        val scheme = uri.scheme?.lowercase()
-        return when {
-            scheme == "http" || scheme == "https" -> {
-                extractSync(uri.toString())
-            }
-            scheme == "file" -> {
-                val path = uri.path ?: throw PlayMediaException.InvalidDataSourceException("File URI has null path")
-                extractSync(path)
-            }
-            else -> {
-                try {
-                    context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
-                        extractSync(pfd)
-                    } ?: throw PlayMediaException.InvalidDataSourceException("ContentResolver returned null descriptor for $uri")
-                } catch (e: Exception) {
-                    if (e is PlayMediaException) throw e
-                    throw PlayMediaException.InvalidDataSourceException("Failed to open Content URI: ${e.message}")
-                }
-            }
-        }
-    }
+    @JvmOverloads
+    fun extractSync(context: Context, uri: Uri, timeoutMs: Long = DEFAULT_TIMEOUT_MS): MediaInfo =
+        MediaInputs.open(context, uri) { fd, source -> probe(fd, source, uri.toString(), timeoutMs) }
 
     @JvmStatic
-    fun extractSync(descriptor: ParcelFileDescriptor): MediaInfo {
-        val info = MediaInfoNativeBridge.nativeParseMediaInfoFd(descriptor.fd)
-        return info ?: throw PlayMediaException.CorruptStreamException(-1, "Unable to parse media from FileDescriptor")
-    }
+    @JvmOverloads
+    fun extractSync(descriptor: ParcelFileDescriptor, timeoutMs: Long = DEFAULT_TIMEOUT_MS): MediaInfo =
+        MediaInputs.open(descriptor) { fd, source -> probe(fd, source, "fd:${descriptor.fd}", timeoutMs) }
 
     @JvmStatic
-    fun extractSync(filePath: String): MediaInfo {
-        val info = MediaInfoNativeBridge.nativeParseMediaInfo(filePath)
-        return info ?: throw PlayMediaException.CorruptStreamException(-1, "Unable to parse media at $filePath")
-    }
+    @JvmOverloads
+    fun extractSync(filePath: String, timeoutMs: Long = DEFAULT_TIMEOUT_MS): MediaInfo =
+        MediaInputs.open(filePath) { fd, source -> probe(fd, source, filePath, timeoutMs) }
+
+    @JvmStatic
+    @JvmOverloads
+    fun extractSync(source: MediaDataSource, timeoutMs: Long = DEFAULT_TIMEOUT_MS): MediaInfo =
+        MediaInputs.open(source) { fd, data -> probe(fd, data, "source", timeoutMs) }
 
     /**
-     * Reads metadata directly from a network InputStream (SMB, FTP, SFTP, HTTP) via native AVIOContext.
+     * Reads a stream that can only go forward. Containers that need to seek back, like MP4 with
+     * its index at the end, fail this way; give network files a [MediaDataSource] instead.
      */
     @JvmStatic
     @JvmOverloads
-    fun extractSync(inputStream: InputStream, streamLength: Long = -1L): MediaInfo {
-        val info = MediaInfoNativeBridge.nativeParseMediaInfoStream(inputStream, streamLength)
-        return info ?: throw PlayMediaException.NetworkTimeoutException("Failed to probe stream from network InputStream")
-    }
+    fun extractSync(inputStream: InputStream, streamLength: Long = -1L, timeoutMs: Long = DEFAULT_TIMEOUT_MS): MediaInfo =
+        MediaInputs.open(inputStream, streamLength) { fd, source -> probe(fd, source, "stream", timeoutMs) }
 
-    // --- Asynchronous Callback (Java / Groovy Friendly) API ---
+    // --- Callback API (runs on a background thread, calls back there) ---
 
     @JvmStatic
-    fun extractAsync(context: Context, uri: Uri, callback: Callback) {
-        Thread {
-            try {
-                callback.onSuccess(extractSync(context, uri))
-            } catch (e: PlayMediaException) {
-                callback.onError(e)
-            } catch (t: Throwable) {
-                callback.onError(PlayMediaException.CorruptStreamException(-1, t.message ?: "Unknown error"))
-            }
-        }.start()
-    }
+    fun extractAsync(context: Context, uri: Uri, callback: Callback) = inBackground(callback) { extractSync(context, uri) }
+
+    @JvmStatic
+    fun extractAsync(filePath: String, callback: Callback) = inBackground(callback) { extractSync(filePath) }
+
+    @JvmStatic
+    fun extractAsync(source: MediaDataSource, callback: Callback) = inBackground(callback) { extractSync(source) }
 
     @JvmStatic
     @JvmOverloads
-    fun extractAsync(inputStream: InputStream, streamLength: Long = -1L, callback: Callback) {
-        Thread {
-            try {
-                callback.onSuccess(extractSync(inputStream, streamLength))
-            } catch (e: PlayMediaException) {
-                callback.onError(e)
-            } catch (t: Throwable) {
-                callback.onError(PlayMediaException.NetworkTimeoutException(t.message ?: "Network stream failure"))
-            }
-        }.start()
-    }
+    fun extractAsync(inputStream: InputStream, streamLength: Long = -1L, callback: Callback) =
+        inBackground(callback) { extractSync(inputStream, streamLength) }
 
-    @JvmStatic
-    fun extractAsync(filePath: String, callback: Callback) {
-        Thread {
+    private fun probe(fd: Int, source: MediaDataSource?, label: String, timeoutMs: Long): MediaInfo =
+        MediaInfoNativeBridge.probe(fd, source, label, timeoutMs)
+            ?: throw PlayMediaException.CorruptStreamException(-1, "Can't read the media in $label")
+
+    private fun inBackground(callback: Callback, read: () -> MediaInfo) {
+        Thread({
             try {
-                callback.onSuccess(extractSync(filePath))
-            } catch (e: PlayMediaException) {
-                callback.onError(e)
-            } catch (t: Throwable) {
-                callback.onError(PlayMediaException.CorruptStreamException(-1, t.message ?: "Failed to open media"))
+                callback.onSuccess(read())
+            } catch (error: PlayMediaException) {
+                callback.onError(error)
+            } catch (error: Exception) {
+                callback.onError(PlayMediaException.CorruptStreamException(-1, error.message ?: "Can't read the media"))
             }
-        }.start()
+        }, "PlayMedia:Info").start()
     }
 }

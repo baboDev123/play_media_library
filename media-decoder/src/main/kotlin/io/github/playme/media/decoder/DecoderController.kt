@@ -22,7 +22,7 @@ interface DecoderFallbackListener {
 
 /**
  * Controller providing smooth runtime switching between decoder modes and automatic fallback chains
- * with complete playback state preservation (position, playWhenReady, speed, track selections, subtitle delay).
+ * with complete playback state preservation (position, playWhenReady, speed, track selections).
  */
 @OptIn(UnstableApi::class)
 class DecoderController(
@@ -83,7 +83,7 @@ class DecoderController(
      * - playWhenReady state
      * - playback speed / parameters
      * - selected audio and subtitle tracks (TrackSelectionParameters)
-     * - subtitle delay and speed adjustments
+     * - subtitle timing, when every factory shares one [SubtitleTiming]
      * - playlist / current media item
      */
     fun switchDecoderMode(newMode: DecoderMode) {
@@ -98,8 +98,6 @@ class DecoderController(
         val savedPlaybackParameters = oldPlayer?.playbackParameters
         val savedMediaItem = oldPlayer?.currentMediaItem
         val savedTrackParameters: TrackSelectionParameters? = oldPlayer?.trackSelectionParameters
-        val savedSubtitleDelay = oldPlayer?.subtitleDelayMilliseconds ?: 0L
-        val savedSubtitleSpeed = oldPlayer?.subtitleSpeed ?: 1.0f
 
         currentMode = newMode
 
@@ -109,10 +107,6 @@ class DecoderController(
         // 3. Restore all state seamlessly on the new player instance
         val newPlayer = playerProvider()
         if (newPlayer != null) {
-            // Restore subtitle timing
-            newPlayer.subtitleDelayMilliseconds = savedSubtitleDelay
-            newPlayer.subtitleSpeed = savedSubtitleSpeed
-
             // Restore track selection preferences
             if (savedTrackParameters != null) {
                 newPlayer.trackSelectionParameters = savedTrackParameters

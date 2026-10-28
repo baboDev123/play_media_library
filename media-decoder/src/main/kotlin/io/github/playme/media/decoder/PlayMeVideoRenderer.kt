@@ -2,11 +2,9 @@ package io.github.playme.media.decoder
 
 import android.os.Handler
 import android.view.Surface
-import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.decoder.CryptoConfig
 import androidx.media3.decoder.Decoder
 import androidx.media3.decoder.DecoderInputBuffer
@@ -14,73 +12,69 @@ import androidx.media3.decoder.VideoDecoderOutputBuffer
 import androidx.media3.exoplayer.RendererCapabilities
 import androidx.media3.exoplayer.video.DecoderVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
+import io.github.playme.media.core.PlayMediaNative
 
 /**
- * Media3 Custom Video Renderer powered by PlayMedia FFmpeg Engine.
+ * Plays video decoded by FFmpeg. Media3 decides when each frame is due, and drops late ones;
+ * the frame is then drawn straight onto the player's Surface.
  *
- * Implements:
- * - Point c: Media3 timed surface presentation & automatic frame drop handling
- * - Point f: Thread-safe dynamic surface switching
+ * @param threads how many threads decode each video, by default one per core (at most 8).
  */
-@OptIn(UnstableApi::class)
 class PlayMeVideoRenderer @JvmOverloads constructor(
-    allowedJoiningTimeMs: Long = 5000,
+    allowedJoiningTimeMs: Long = 5_000,
     eventHandler: Handler? = null,
     eventListener: VideoRendererEventListener? = null,
-    maxDroppedFramesToNotify: Int = 50
+    maxDroppedFramesToNotify: Int = 50,
+    private val threads: Int = defaultThreads(),
 ) : DecoderVideoRenderer(allowedJoiningTimeMs, eventHandler, eventListener, maxDroppedFramesToNotify) {
 
-    private var activeDecoder: PlayMeVideoDecoder? = null
-    private var outputSurface: Surface? = null
+    /** Native window state for the Surface being drawn on; 0 until the first frame. */
+    private var window = 0L
 
     override fun getName(): String = "PlayMeVideoRenderer"
 
     override fun supportsFormat(format: Format): Int {
-        val mimeType = format.sampleMimeType ?: return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_TYPE)
-        if (!MimeTypes.isVideo(mimeType)) {
-            return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_TYPE)
-        }
-
-        return if (PlayMeNativeBridge.isCodecSupported(mimeType)) {
-            RendererCapabilities.create(
+        val mimeType = format.sampleMimeType
+        return when {
+            mimeType == null || !MimeTypes.isVideo(mimeType) -> RendererCapabilities.create(C.FORMAT_UNSUPPORTED_TYPE)
+            !PlayMediaNative.canDecodeVideo(mimeType) -> RendererCapabilities.create(C.FORMAT_UNSUPPORTED_SUBTYPE)
+            format.cryptoType != C.CRYPTO_TYPE_NONE -> RendererCapabilities.create(C.FORMAT_UNSUPPORTED_DRM)
+            else -> RendererCapabilities.create(
                 C.FORMAT_HANDLED,
-                ADAPTIVE_SEAMLESS,
-                TUNNELING_NOT_SUPPORTED
+                RendererCapabilities.ADAPTIVE_SEAMLESS,
+                RendererCapabilities.TUNNELING_NOT_SUPPORTED,
             )
-        } else {
-            RendererCapabilities.create(C.FORMAT_UNSUPPORTED_SUBTYPE)
         }
     }
 
     override fun createDecoder(
         format: Format,
-        cryptoConfig: CryptoConfig?
-    ): Decoder<DecoderInputBuffer, VideoDecoderOutputBuffer, PlayMeDecoderException> {
-        val decoder = PlayMeVideoDecoder(format)
-        decoder.setOutputSurface(outputSurface)
-        activeDecoder = decoder
-        return decoder
-    }
+        cryptoConfig: CryptoConfig?,
+    ): Decoder<DecoderInputBuffer, VideoDecoderOutputBuffer, PlayMeDecoderException> = FfmpegVideoDecoder(format, threads)
 
-    // Point c: Media3 commands rendering at the exact synchronized PTS!
     override fun renderOutputBufferToSurface(outputBuffer: VideoDecoderOutputBuffer, surface: Surface) {
-        activeDecoder?.renderFrameToSurface(outputBuffer, surface)
+        val frame = (outputBuffer as FrameBuffer).frame
+        if (frame != 0L) {
+            if (window == 0L) window = FrameWindowNative.create()
+            FrameWindowNative.render(window, surface, frame)
+        }
         outputBuffer.release()
     }
 
-    override fun setDecoderOutputMode(outputMode: Int) {
-        // Output mode managed by native frame dispatcher
+    // Frames are always drawn onto a Surface here; no YUV buffers are produced for GL views.
+    override fun setDecoderOutputMode(outputMode: Int) = Unit
+
+    override fun onDisabled() {
+        super.onDisabled()
+        if (window != 0L) {
+            FrameWindowNative.release(window)
+            window = 0L
+        }
     }
 
-    // Point f: Thread-safe dynamic surface changes
-    override fun handleMessage(messageType: Int, message: Any?) {
-        when (messageType) {
-            MSG_SET_VIDEO_OUTPUT -> {
-                val surface = message as? Surface
-                this.outputSurface = surface
-                activeDecoder?.setOutputSurface(surface)
-            }
-            else -> super.handleMessage(messageType, message)
-        }
+    companion object {
+        /** One decoding thread per core, at most 8: more stops helping and costs memory. */
+        @JvmStatic
+        fun defaultThreads(): Int = Runtime.getRuntime().availableProcessors().coerceIn(1, 8)
     }
 }

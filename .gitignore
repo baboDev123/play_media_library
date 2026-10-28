@@ -9,3 +9,7 @@ captures/
 .cxx/
 *.apk
 *.aar
+ffmpeg/sources/
+ffmpeg/build/
+ffmpeg/output/
+ffmpeg/.tools/

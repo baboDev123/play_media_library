@@ -8,26 +8,11 @@ plugins {
 android {
     namespace = "io.github.playme.media.info"
     compileSdk = libs.versions.androidCompileSdk.get().toInt()
-    ndkVersion = libs.versions.ndk.get()
 
     defaultConfig {
         minSdk = libs.versions.androidMinSdk.get().toInt()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
-
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-        }
-
-        externalNativeBuild {
-            cmake {
-                arguments += listOf(
-                    "-DANDROID_STL=c++_shared",
-                    "-DCMAKE_BUILD_TYPE=Release"
-                )
-                cppFlags += listOf("-std=c++17", "-O3", "-flto", "-fexceptions")
-            }
-        }
     }
 
     buildTypes {
@@ -50,16 +35,10 @@ android {
             jvmTarget.set(JvmTarget.JVM_17)
         }
     }
-
-    externalNativeBuild {
-        cmake {
-            path("src/main/cpp/CMakeLists.txt")
-            version = libs.versions.cmake.get()
-        }
-    }
 }
 
 dependencies {
+    api(project(":media-core"))
     implementation(libs.androidx.annotation)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)

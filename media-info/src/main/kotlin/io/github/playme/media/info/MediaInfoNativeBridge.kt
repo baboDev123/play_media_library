@@ -1,44 +1,33 @@
 package io.github.playme.media.info
 
 import android.graphics.Bitmap
-import androidx.annotation.Keep
-import java.io.InputStream
+import android.media.MediaDataSource
+import io.github.playme.media.core.PlayMediaNative
 
-@Keep
+/**
+ * media-core's media_probe.cpp. Each call reads either the file descriptor [fd] or, when it
+ * isn't null, the [source]; reading gives up after [timeoutMs] (0 for never).
+ */
 internal object MediaInfoNativeBridge {
-
     init {
-        try {
-            System.loadLibrary("playme_info")
-        } catch (e: UnsatisfiedLinkError) {
-            System.err.println("MediaInfoNativeBridge: Failed to load native library: ${e.message}")
-        }
+        PlayMediaNative.requireAvailable()
     }
 
-    // Path based
-    @JvmStatic
-    external fun nativeParseMediaInfo(filePath: String): MediaInfo?
+    /** The container's facts, labelled with [path]; null when it can't be read. */
+    @JvmStatic external fun probe(fd: Int, source: MediaDataSource?, path: String, timeoutMs: Long): MediaInfo?
 
-    @JvmStatic
-    external fun nativeExtractFrameAtTime(filePath: String, timeUs: Long, targetWidth: Int, targetHeight: Int): Bitmap?
-
-    // FileDescriptor / Scoped Storage (Android 10+) based
-    @JvmStatic
-    external fun nativeParseMediaInfoFd(fd: Int): MediaInfo?
-
-    @JvmStatic
-    external fun nativeExtractFrameAtTimeFd(fd: Int, timeUs: Long, targetWidth: Int, targetHeight: Int): Bitmap?
-
-    // Custom AVIOContext / Network Stream (SMB, FTP, SFTP) based
-    @JvmStatic
-    external fun nativeParseMediaInfoStream(inputStream: InputStream, streamLength: Long): MediaInfo?
-
-    @JvmStatic
-    external fun nativeExtractFrameAtTimeStream(
-        inputStream: InputStream,
-        streamLength: Long,
+    /** The frame at [timeUs], unrotated; [rotation] gets the turn it needs. Null without video. */
+    @JvmStatic external fun frame(
+        fd: Int,
+        source: MediaDataSource?,
         timeUs: Long,
-        targetWidth: Int,
-        targetHeight: Int
+        maxWidth: Int,
+        maxHeight: Int,
+        exact: Boolean,
+        timeoutMs: Long,
+        rotation: IntArray,
     ): Bitmap?
+
+    /** The encoded cover picture (JPEG or PNG), or null. */
+    @JvmStatic external fun embeddedPicture(fd: Int, source: MediaDataSource?, timeoutMs: Long): ByteArray?
 }

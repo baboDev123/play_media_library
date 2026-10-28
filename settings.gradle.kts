@@ -16,6 +16,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "playme-media"
 
+include(":media-core")
 include(":media-decoder")
 include(":media-info")
 
