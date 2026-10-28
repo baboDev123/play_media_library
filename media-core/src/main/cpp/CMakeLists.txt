@@ -29,4 +29,4 @@ target_link_options(playmedia PRIVATE
 # FFmpeg's libraries depend on each other in this order.
 target_link_libraries(playmedia PRIVATE
     avformat avcodec swscale swresample avutil dav1d
-    android jnigraphics log dl z m)
+    android jnigraphics EGL GLESv2 log dl z m)

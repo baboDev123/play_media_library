@@ -1,7 +1,9 @@
 package io.github.playme.media.decoder
 
+import android.os.Handler
 import androidx.media3.common.C
 import androidx.media3.common.Format
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import io.github.playme.media.core.PlayMediaNative
@@ -47,6 +49,9 @@ class DecoderManager @JvmOverloads constructor(
 
     private val renderers = CopyOnWriteArrayList<ModeGatedRenderer>()
 
+    @Volatile
+    private var player: ExoPlayer? = null
+
     fun selectVideoDecoder(mode: DecoderMode) {
         if (mode == videoMode) return
         videoMode = mode
@@ -68,10 +73,12 @@ class DecoderManager @JvmOverloads constructor(
             "DecoderManager needs the player's track selector to be a DefaultTrackSelector"
         }
         selector.setParameters(selector.buildUponParameters().setAllowInvalidateSelectionsOnRendererCapabilitiesChange(true))
+        this.player = player
     }
 
     /** Stops tracking the renderers of the player being released. */
     fun detach() {
+        player = null
         renderers.clear()
         activeVideoMode = null
         activeAudioMode = null
@@ -108,10 +115,22 @@ class DecoderManager @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Has the player pick renderers again, while it plays something: with nothing loaded (idle,
+     * ended, between items, before tracks are known) Media3 can't re-select, and the new mode
+     * applies at the next selection anyway.
+     */
     private fun capabilitiesChanged(trackType: Int) {
-        for (renderer in renderers) {
-            if (renderer.getTrackType() == trackType) renderer.notifyCapabilitiesChanged()
+        val player = player ?: return
+        val reselect = Runnable {
+            val playing = player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING
+            if (!playing || player.currentTracks.isEmpty) return@Runnable
+            for (renderer in renderers) {
+                if (renderer.getTrackType() == trackType) renderer.notifyCapabilitiesChanged()
+            }
         }
+        val looper = player.applicationLooper
+        if (looper.isCurrentThread) reselect.run() else Handler(looper).post(reselect)
     }
 
     private fun ffmpegDecodes(format: Format, video: Boolean): Boolean {

@@ -53,9 +53,11 @@ val player = ExoPlayer.Builder(context, renderers).build()
 | `SYSTEM_SOFTWARE` | Android's software decoders only | Device decoders, FFmpeg for the rest |
 | `FFMPEG` | FFmpeg first | FFmpeg first |
 
-FFmpeg video is drawn straight onto the player's `Surface` (`SurfaceView` or `TextureView`) as
-YV12: 8-bit 4:2:0 video, nearly all of it, is copied plane by plane with no colour conversion on
-the CPU. Media3 times every frame and drops late ones. Audio comes out as 16-bit PCM, so Media3's
+FFmpeg video is drawn onto the player's `Surface` (`SurfaceView` or `TextureView`) with OpenGL
+ES: the Y, U and V planes go up as textures and the GPU converts them with the frame's colour
+matrix (BT.601, BT.709 or BT.2020, limited or full range). Media3 times every frame and drops
+late ones. Because drawing goes through EGL, the Surface is let go cleanly, so switching back
+to a device decoder on the same Surface works. Audio comes out as 16-bit PCM, so Media3's
 speed, pitch and volume processing still apply.
 
 ### Subtitle timing
@@ -135,8 +137,8 @@ functions are `@JvmStatic` with `@JvmOverloads`.
 
 - `./gradlew :media-decoder:testDebugUnitTest`: subtitle timing
 - `./gradlew :media-tests:connectedDebugAndroidTest`: plays AndroidX Media's sample media on a
-  device. FFmpeg must give as many video frames as the device's own decoder and the full length
-  of audio. It also checks media info from every kind of input, thumbnails, timeouts, and that
+  device. FFmpeg must give as many video frames as the device's own decoder, the full length of
+  audio, and on screen look like the device decoder's picture. It also checks media info from every kind of input, thumbnails, timeouts, and that
   native memory stays flat over repeated use.
 
 ## Licences

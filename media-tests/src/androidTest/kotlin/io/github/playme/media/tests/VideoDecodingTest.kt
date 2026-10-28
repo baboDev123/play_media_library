@@ -1,6 +1,6 @@
 package io.github.playme.media.tests
 
-import android.graphics.ImageFormat
+import android.graphics.PixelFormat
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
@@ -52,14 +52,16 @@ class VideoDecodingTest {
         val file = TestMedia.file("sample.mp4")
         val video = MediaInfoExtractor.extractSync(file.path).primaryVideo!!
         val thread = HandlerThread("frames").apply { start() }
-        val reader = ImageReader.newInstance(video.width, video.height, ImageFormat.YV12, 3)
+        val reader = ImageReader.newInstance(video.width, video.height, PixelFormat.RGBA_8888, 3)
         val pictures = AtomicInteger()
         val detailed = AtomicInteger()
         reader.setOnImageAvailableListener({ source ->
             source.acquireLatestImage()?.use { image ->
                 pictures.incrementAndGet()
-                val luma = image.planes[0].buffer
-                val samples = IntArray(64) { luma.get((it * (luma.limit() - 1) / 63)).toInt() and 0xFF }
+                // RGBA: sample the green of 64 pixels spread over the picture.
+                val pixels = image.planes[0].buffer
+                val count = pixels.limit() / 4
+                val samples = IntArray(64) { pixels.get((it * (count - 1) / 63) * 4 + 1).toInt() and 0xFF }
                 if (samples.max() - samples.min() > 20) detailed.incrementAndGet()
             }
         }, Handler(thread.looper))
