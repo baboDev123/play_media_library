@@ -2,25 +2,26 @@ package io.github.playme.media.decoder
 
 import android.content.Context
 import android.os.Handler
+import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 import java.util.ArrayList
 
 /**
  * Drop-in custom RenderersFactory for Media3 ExoPlayer.
- * Seamlessly integrates FFmpeg-backed Software Decoders alongside Android Hardware Decoders.
  *
- * Fully compatible with Kotlin DSL and Groovy DSL:
- * ```groovy
- * def factory = new PlayMeRenderersFactory(context)
- *     .setDecoderMode(DecoderMode.AUTO)
- * ```
+ * Implements:
+ * 1. 4 Decoder Modes: AUTO, HARDWARE, SYSTEM_SOFTWARE, FFMPEG.
+ * 2. Custom MediaCodecSelectors for Hardware vs System Software isolation.
+ * 3. PlayMeTextRenderer integration for Subtitle Delay & Speed adjustments.
  */
 @OptIn(UnstableApi::class)
 open class PlayMeRenderersFactory @JvmOverloads constructor(
@@ -49,12 +50,24 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
     }
 
     private fun updateExtensionRendererMode() {
-        if (videoDecoderMode == DecoderMode.SOFTWARE || audioDecoderMode == DecoderMode.SOFTWARE) {
-            setExtensionRendererMode(EXTENSION_RENDERER_MODE_PREFER)
-        } else if (videoDecoderMode == DecoderMode.HARDWARE && audioDecoderMode == DecoderMode.HARDWARE) {
-            setExtensionRendererMode(EXTENSION_RENDERER_MODE_OFF)
-        } else {
-            setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON)
+        when {
+            videoDecoderMode == DecoderMode.FFMPEG || audioDecoderMode == DecoderMode.FFMPEG -> {
+                setExtensionRendererMode(EXTENSION_RENDERER_MODE_PREFER)
+            }
+            videoDecoderMode == DecoderMode.HARDWARE && audioDecoderMode == DecoderMode.HARDWARE -> {
+                setExtensionRendererMode(EXTENSION_RENDERER_MODE_OFF)
+            }
+            else -> {
+                setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON)
+            }
+        }
+    }
+
+    private fun resolveMediaCodecSelector(mode: DecoderMode, defaultSelector: MediaCodecSelector): MediaCodecSelector {
+        return when (mode) {
+            DecoderMode.HARDWARE -> HardwareMediaCodecSelector(defaultSelector)
+            DecoderMode.SYSTEM_SOFTWARE -> SystemSoftwareMediaCodecSelector(defaultSelector)
+            else -> defaultSelector
         }
     }
 
@@ -74,14 +87,16 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
             eventListener = eventListener
         )
 
+        val resolvedSelector = resolveMediaCodecSelector(videoDecoderMode, mediaCodecSelector)
+
         when (videoDecoderMode) {
-            DecoderMode.SOFTWARE -> {
-                // Software decoder takes top priority
+            DecoderMode.FFMPEG -> {
+                // FFmpeg takes absolute priority
                 out.add(softwareRenderer)
                 super.buildVideoRenderers(
                     context,
                     extensionRendererMode,
-                    mediaCodecSelector,
+                    resolvedSelector,
                     enableDecoderFallback,
                     eventHandler,
                     eventListener,
@@ -90,11 +105,24 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
                 )
             }
             DecoderMode.HARDWARE -> {
-                // Hardware first, no software extension
+                // Strict Hardware only, no software fallback
                 super.buildVideoRenderers(
                     context,
                     EXTENSION_RENDERER_MODE_OFF,
-                    mediaCodecSelector,
+                    resolvedSelector,
+                    enableDecoderFallback,
+                    eventHandler,
+                    eventListener,
+                    allowedVideoJoiningTimeMs,
+                    out
+                )
+            }
+            DecoderMode.SYSTEM_SOFTWARE -> {
+                // System software codecs only (c2.android.* / OMX.google.*)
+                super.buildVideoRenderers(
+                    context,
+                    EXTENSION_RENDERER_MODE_OFF,
+                    resolvedSelector,
                     enableDecoderFallback,
                     eventHandler,
                     eventListener,
@@ -103,12 +131,12 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
                 )
             }
             DecoderMode.AUTO -> {
-                // Hardware first, then software fallback
+                // Hardware first, then System Software, then FFmpeg extension
                 super.buildVideoRenderers(
                     context,
                     extensionRendererMode,
                     mediaCodecSelector,
-                    enableDecoderFallback,
+                    true, // Enable decoder fallback
                     eventHandler,
                     eventListener,
                     allowedVideoJoiningTimeMs,
@@ -135,14 +163,15 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
             audioSink = audioSink
         )
 
+        val resolvedSelector = resolveMediaCodecSelector(audioDecoderMode, mediaCodecSelector)
+
         when (audioDecoderMode) {
-            DecoderMode.SOFTWARE -> {
-                // Software audio decoder first (handles AC3, DTS, TrueHD directly)
+            DecoderMode.FFMPEG -> {
                 out.add(softwareRenderer)
                 super.buildAudioRenderers(
                     context,
                     extensionRendererMode,
-                    mediaCodecSelector,
+                    resolvedSelector,
                     enableDecoderFallback,
                     audioSink,
                     eventHandler,
@@ -150,11 +179,11 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
                     out
                 )
             }
-            DecoderMode.HARDWARE -> {
+            DecoderMode.HARDWARE, DecoderMode.SYSTEM_SOFTWARE -> {
                 super.buildAudioRenderers(
                     context,
                     EXTENSION_RENDERER_MODE_OFF,
-                    mediaCodecSelector,
+                    resolvedSelector,
                     enableDecoderFallback,
                     audioSink,
                     eventHandler,
@@ -167,7 +196,7 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
                     context,
                     extensionRendererMode,
                     mediaCodecSelector,
-                    enableDecoderFallback,
+                    true,
                     audioSink,
                     eventHandler,
                     eventListener,
@@ -177,5 +206,56 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
             }
         }
     }
+
+    // Point 4: Inject PlayMeTextRenderer for subtitle delay and speed adjustments
+    override fun buildTextRenderers(
+        context: Context,
+        output: TextOutput,
+        outputLooper: Looper,
+        extensionRendererMode: Int,
+        out: ArrayList<Renderer>
+    ) {
+        out.add(PlayMeTextRenderer(output, outputLooper))
+    }
 }
 
+// ==============================================================================
+// MediaCodecSelectors for HARDWARE and SYSTEM_SOFTWARE Isolation
+// ==============================================================================
+
+@OptIn(UnstableApi::class)
+internal class HardwareMediaCodecSelector(
+    private val delegate: MediaCodecSelector
+) : MediaCodecSelector {
+    override fun getDecoderInfos(
+        mimeType: String,
+        requiresSecureDecoder: Boolean,
+        requiresTunnelingDecoder: Boolean
+    ): List<MediaCodecInfo> {
+        val all = delegate.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
+        return all.filter { info ->
+            info.hardwareAccelerated &&
+                !info.softwareOnly &&
+                !info.name.startsWith("c2.android.") &&
+                !info.name.startsWith("OMX.google.")
+        }
+    }
+}
+
+@OptIn(UnstableApi::class)
+internal class SystemSoftwareMediaCodecSelector(
+    private val delegate: MediaCodecSelector
+) : MediaCodecSelector {
+    override fun getDecoderInfos(
+        mimeType: String,
+        requiresSecureDecoder: Boolean,
+        requiresTunnelingDecoder: Boolean
+    ): List<MediaCodecInfo> {
+        val all = delegate.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
+        return all.filter { info ->
+            info.softwareOnly ||
+                info.name.startsWith("c2.android.") ||
+                info.name.startsWith("OMX.google.")
+        }
+    }
+}

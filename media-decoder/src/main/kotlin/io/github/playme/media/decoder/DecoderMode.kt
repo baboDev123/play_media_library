@@ -1,31 +1,44 @@
 package io.github.playme.media.decoder
 
 /**
- * Defines the decoder strategy used for media playback.
- * Fully compatible with both Kotlin DSL and Groovy DSL / Java callers.
+ * 4 Decoder Modes for PlayMedia Engine:
+ * - AUTO: Hardware first -> Fallback to System Software -> Fallback to FFmpeg
+ * - HARDWARE: Strict device hardware acceleration (MediaCodec only, no software codecs)
+ * - SYSTEM_SOFTWARE: Android built-in software decoders (c2.android.* / OMX.google.*)
+ * - FFMPEG: Native C++ FFmpeg decoders (AC3, DTS, TrueHD, AV1, HEVC, H264, etc.)
  */
 enum class DecoderMode(val id: Int, val displayName: String) {
     /**
-     * Tries hardware decoder (MediaCodec) first.
-     * Automatically falls back to high-performance software decoding if hardware codec is absent or fails.
+     * Automatic selection with full fallback chain:
+     * HARDWARE -> SYSTEM_SOFTWARE -> FFMPEG
      */
     AUTO(0, "Auto"),
 
     /**
-     * Forces device hardware acceleration (MediaCodec).
+     * Strict device hardware acceleration.
+     * Excludes c2.android.* and OMX.google.* software decoders.
      */
     HARDWARE(1, "Hardware (HW)"),
 
     /**
-     * Forces optimized native software decoding via FFmpeg / NEON direct rendering.
+     * Android platform software decoders (c2.android.* and OMX.google.*).
      */
-    SOFTWARE(2, "Software (SW)");
+    SYSTEM_SOFTWARE(2, "System Software (SW)"),
 
-    val isHardwarePreferred: Boolean
-        get() = this == HARDWARE || this == AUTO
+    /**
+     * Native C++ FFmpeg software engine.
+     * High-performance software decoding for all container formats and codecs.
+     */
+    FFMPEG(3, "FFmpeg (SW)");
 
-    val isSoftwarePreferred: Boolean
-        get() = this == SOFTWARE
+    val isHardwareOnly: Boolean
+        get() = this == HARDWARE
+
+    val isSystemSoftware: Boolean
+        get() = this == SYSTEM_SOFTWARE
+
+    val isFfmpegOnly: Boolean
+        get() = this == FFMPEG
 
     companion object {
         @JvmStatic
@@ -34,4 +47,3 @@ enum class DecoderMode(val id: Int, val displayName: String) {
         }
     }
 }
-
