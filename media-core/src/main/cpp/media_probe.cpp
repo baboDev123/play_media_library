@@ -97,11 +97,11 @@ jobject describe(JNIEnv* env, const AVFormatContext* format, jstring path) {
 
     jclass videoType = infoClass(env, "VideoStream");
     jmethodID newVideo = env->GetMethodID(videoType, "<init>",
-        "(ILjava/lang/String;IIJFIILio/github/playme/media/info/HdrType;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Z)V");
+        "(ILjava/lang/String;IIJFIILio/github/playme/media/info/HdrType;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;I)V");
     jclass audioType = infoClass(env, "AudioStream");
-    jmethodID newAudio = env->GetMethodID(audioType, "<init>", "(ILjava/lang/String;IIJLjava/lang/String;Ljava/lang/String;Z)V");
+    jmethodID newAudio = env->GetMethodID(audioType, "<init>", "(ILjava/lang/String;IIJLjava/lang/String;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;I)V");
     jclass subtitleType = infoClass(env, "SubtitleStream");
-    jmethodID newSubtitle = env->GetMethodID(subtitleType, "<init>", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ZZ)V");
+    jmethodID newSubtitle = env->GetMethodID(subtitleType, "<init>", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;ZZI)V");
     jclass attachmentType = infoClass(env, "MediaAttachment");
     jmethodID newAttachment = env->GetMethodID(attachmentType, "<init>", "(JLjava/lang/String;Ljava/lang/String;J[B)V");
     jclass hdrType = infoClass(env, "HdrType");
@@ -112,6 +112,7 @@ jobject describe(JNIEnv* env, const AVFormatContext* format, jstring path) {
         if (stream->disposition & AV_DISPOSITION_ATTACHED_PIC) continue;
         const jint index = static_cast<jint>(i);
         const jboolean isDefault = (stream->disposition & AV_DISPOSITION_DEFAULT) != 0;
+        const jint disposition = stream->disposition;
         jstring codec = env->NewStringUTF(avcodec_get_name(parameters->codec_id));
         jstring language = stringOrNull(env, tag(stream->metadata, "language"));
         jstring title = stringOrNull(env, tag(stream->metadata, "title"));
@@ -128,7 +129,7 @@ jobject describe(JNIEnv* env, const AVFormatContext* format, jstring path) {
                 jstring primaries = stringOrNull(env, av_color_primaries_name(parameters->color_primaries));
                 item = env->NewObject(videoType, newVideo, index, codec, parameters->width, parameters->height,
                     static_cast<jlong>(parameters->bit_rate), fps, rotationOf(stream), bitDepthOf(parameters),
-                    hdr, space, transfer, primaries, isDefault);
+                    hdr, space, transfer, primaries, isDefault, language, title, disposition);
                 env->CallBooleanMethod(videos, add, item);
                 env->DeleteLocalRef(hdr);
                 if (space) env->DeleteLocalRef(space);
@@ -136,14 +137,23 @@ jobject describe(JNIEnv* env, const AVFormatContext* format, jstring path) {
                 if (primaries) env->DeleteLocalRef(primaries);
                 break;
             }
-            case AVMEDIA_TYPE_AUDIO:
+            case AVMEDIA_TYPE_AUDIO: {
+                char layoutName[64] = {};
+                const bool described = parameters->ch_layout.order != AV_CHANNEL_ORDER_UNSPEC &&
+                    av_channel_layout_describe(&parameters->ch_layout, layoutName, sizeof(layoutName)) > 0;
+                jstring layout = described ? env->NewStringUTF(layoutName) : nullptr;
+                jstring sampleFormat = stringOrNull(env, av_get_sample_fmt_name(static_cast<AVSampleFormat>(parameters->format)));
                 item = env->NewObject(audioType, newAudio, index, codec, parameters->sample_rate,
-                    parameters->ch_layout.nb_channels, static_cast<jlong>(parameters->bit_rate), language, title, isDefault);
+                    parameters->ch_layout.nb_channels, static_cast<jlong>(parameters->bit_rate), language, title, isDefault,
+                    layout, sampleFormat, disposition);
                 env->CallBooleanMethod(audios, add, item);
+                if (layout) env->DeleteLocalRef(layout);
+                if (sampleFormat) env->DeleteLocalRef(sampleFormat);
                 break;
+            }
             case AVMEDIA_TYPE_SUBTITLE:
                 item = env->NewObject(subtitleType, newSubtitle, index, codec, language, title, isDefault,
-                    static_cast<jboolean>((stream->disposition & AV_DISPOSITION_FORCED) != 0));
+                    static_cast<jboolean>((stream->disposition & AV_DISPOSITION_FORCED) != 0), disposition);
                 env->CallBooleanMethod(subtitles, add, item);
                 break;
             case AVMEDIA_TYPE_ATTACHMENT: {

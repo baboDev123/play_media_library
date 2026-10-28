@@ -29,6 +29,8 @@ class MediaInfoTest {
         assertEquals("aac", info.primaryAudio?.codecName)
         assertTrue(info.durationMs > 0)
         assertTrue(info.primaryVideo!!.width > 0 && info.primaryVideo!!.frameRate > 0)
+        assertEquals("fltp", info.primaryAudio?.sampleFormat)
+        assertNotNull(info.primaryAudio?.channelLayout)
     }
 
     @Test

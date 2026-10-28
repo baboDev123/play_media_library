@@ -40,7 +40,11 @@ data class VideoStream(
     val colorSpace: String? = null,
     val colorTransfer: String? = null,
     val colorPrimaries: String? = null,
-    val isDefault: Boolean = false
+    val isDefault: Boolean = false,
+    val language: String? = null,
+    val title: String? = null,
+    /** FFmpeg's AV_DISPOSITION_* flags. */
+    val disposition: Int = 0,
 ) {
     val isHdr: Boolean
         get() = hdrType != HdrType.NONE || bitDepth > 8
@@ -55,7 +59,13 @@ data class AudioStream(
     val bitRate: Long,
     val language: String? = null,
     val title: String? = null,
-    val isDefault: Boolean = false
+    val isDefault: Boolean = false,
+    /** FFmpeg's description, such as "5.1(side)". */
+    val channelLayout: String? = null,
+    /** FFmpeg's sample format name, such as "fltp". */
+    val sampleFormat: String? = null,
+    /** FFmpeg's AV_DISPOSITION_* flags. */
+    val disposition: Int = 0,
 )
 
 @Keep
@@ -65,7 +75,9 @@ data class SubtitleStream(
     val language: String? = null,
     val title: String? = null,
     val isDefault: Boolean = false,
-    val isForced: Boolean = false
+    val isForced: Boolean = false,
+    /** FFmpeg's AV_DISPOSITION_* flags. */
+    val disposition: Int = 0,
 )
 
 @Keep
