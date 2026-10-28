@@ -13,23 +13,24 @@ import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 
 /**
- * Media3 renderers with FFmpeg decoding, chosen by [DecoderMode]:
+ * Media3 renderers with FFmpeg decoding, chosen by [DecoderMode] through [decoderManager]:
  *
- * - Video: [DecoderMode.AUTO] tries the device's decoders and falls back to FFmpeg for formats
- *   none of them handles; [DecoderMode.HARDWARE] and [DecoderMode.SYSTEM_SOFTWARE] use only that
- *   kind of device decoder; [DecoderMode.FFMPEG] prefers FFmpeg.
- * - Audio: device decoders first and FFmpeg for the rest (Android's audio decoders are software
- *   anyway), except in [DecoderMode.FFMPEG], which prefers FFmpeg.
+ * - Video: [DecoderMode.AUTO] tries the device's decoders and falls back to FFmpeg for what they
+ *   can't play; [DecoderMode.HARDWARE] and [DecoderMode.SYSTEM_SOFTWARE] use only that kind of
+ *   device decoder; [DecoderMode.FFMPEG] uses FFmpeg, and the device only for formats FFmpeg
+ *   doesn't know.
+ * - Audio: the same, except that Android's audio decoders are software anyway, so
+ *   [DecoderMode.HARDWARE] means the device's decoders.
  * - Subtitles follow [subtitleTiming].
+ *
+ * The mode can change while playing: see [DecoderManager].
  */
 open class PlayMeRenderersFactory @JvmOverloads constructor(
     context: Context,
     decoderMode: DecoderMode = DecoderMode.AUTO,
     val subtitleTiming: SubtitleTiming = SubtitleTiming(),
+    val decoderManager: DecoderManager = DecoderManager(decoderMode, decoderMode),
 ) : DefaultRenderersFactory(context) {
-
-    private var videoMode = decoderMode
-    private var audioMode = decoderMode
 
     init {
         // FFmpeg renderers are added here, not looked up by Media3's extension mechanism.
@@ -37,13 +38,13 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
     }
 
     fun setDecoderMode(mode: DecoderMode): PlayMeRenderersFactory = apply {
-        videoMode = mode
-        audioMode = mode
+        decoderManager.selectVideoDecoder(mode)
+        decoderManager.selectAudioDecoder(mode)
     }
 
-    fun setVideoDecoderMode(mode: DecoderMode): PlayMeRenderersFactory = apply { videoMode = mode }
+    fun setVideoDecoderMode(mode: DecoderMode): PlayMeRenderersFactory = apply { decoderManager.selectVideoDecoder(mode) }
 
-    fun setAudioDecoderMode(mode: DecoderMode): PlayMeRenderersFactory = apply { audioMode = mode }
+    fun setAudioDecoderMode(mode: DecoderMode): PlayMeRenderersFactory = apply { decoderManager.selectAudioDecoder(mode) }
 
     override fun buildVideoRenderers(
         context: Context,
@@ -55,18 +56,20 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
         allowedVideoJoiningTimeMs: Long,
         out: ArrayList<Renderer>,
     ) {
-        val ffmpeg = PlayMeVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener, MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
-        val selector = when (videoMode) {
-            DecoderMode.HARDWARE -> HardwareMediaCodecSelector(mediaCodecSelector)
-            DecoderMode.SYSTEM_SOFTWARE -> SystemSoftwareMediaCodecSelector(mediaCodecSelector)
-            else -> mediaCodecSelector
+        fun device(kind: DecoderKind, selector: MediaCodecSelector) {
+            val built = ArrayList<Renderer>()
+            super.buildVideoRenderers(
+                context, EXTENSION_RENDERER_MODE_OFF, selector, enableDecoderFallback,
+                eventHandler, eventListener, allowedVideoJoiningTimeMs, built,
+            )
+            built.mapTo(out) { ModeGatedRenderer(it, kind, decoderManager) }
         }
-        if (videoMode == DecoderMode.FFMPEG) out += ffmpeg
-        super.buildVideoRenderers(
-            context, EXTENSION_RENDERER_MODE_OFF, selector, enableDecoderFallback || videoMode == DecoderMode.AUTO,
-            eventHandler, eventListener, allowedVideoJoiningTimeMs, out,
-        )
-        if (videoMode == DecoderMode.AUTO) out += ffmpeg
+        // On a tie the first renderer wins: the device's decoders come before FFmpeg.
+        device(DecoderKind.DEVICE, mediaCodecSelector)
+        device(DecoderKind.HARDWARE, HardwareMediaCodecSelector(mediaCodecSelector))
+        device(DecoderKind.SYSTEM_SOFTWARE, SystemSoftwareMediaCodecSelector(mediaCodecSelector))
+        val ffmpeg = PlayMeVideoRenderer(allowedVideoJoiningTimeMs, eventHandler, eventListener, MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)
+        out += ModeGatedRenderer(ffmpeg, DecoderKind.FFMPEG, decoderManager)
     }
 
     override fun buildAudioRenderers(
@@ -79,13 +82,17 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
         eventListener: AudioRendererEventListener,
         out: ArrayList<Renderer>,
     ) {
-        val ffmpeg = PlayMeAudioRenderer(eventHandler, eventListener, audioSink)
-        if (audioMode == DecoderMode.FFMPEG) out += ffmpeg
-        super.buildAudioRenderers(
-            context, EXTENSION_RENDERER_MODE_OFF, mediaCodecSelector, enableDecoderFallback,
-            audioSink, eventHandler, eventListener, out,
-        )
-        if (audioMode != DecoderMode.FFMPEG) out += ffmpeg
+        fun device(kind: DecoderKind, selector: MediaCodecSelector) {
+            val built = ArrayList<Renderer>()
+            super.buildAudioRenderers(
+                context, EXTENSION_RENDERER_MODE_OFF, selector, enableDecoderFallback,
+                audioSink, eventHandler, eventListener, built,
+            )
+            built.mapTo(out) { ModeGatedRenderer(it, kind, decoderManager) }
+        }
+        device(DecoderKind.DEVICE, mediaCodecSelector)
+        device(DecoderKind.SYSTEM_SOFTWARE, SystemSoftwareMediaCodecSelector(mediaCodecSelector))
+        out += ModeGatedRenderer(PlayMeAudioRenderer(eventHandler, eventListener, audioSink), DecoderKind.FFMPEG, decoderManager)
     }
 
     override fun buildTextRenderers(

@@ -12,6 +12,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
+import io.github.playme.media.decoder.DecoderManager
 import io.github.playme.media.decoder.DecoderMode
 import io.github.playme.media.decoder.PlayMeRenderersFactory
 import io.github.playme.media.decoder.SubtitleTiming
@@ -25,6 +26,9 @@ import java.util.concurrent.atomic.AtomicLong
 data class PlayResult(
     val videoDecoder: String?,
     val audioDecoder: String?,
+    /** Every decoder used, in order, when they changed during playback. */
+    val videoDecoders: List<String>,
+    val audioDecoders: List<String>,
     /** Video frames that came out of the decoder: rendered, dropped or skipped. */
     val videoFrames: Int,
     val renderedFrames: Int,
@@ -41,20 +45,23 @@ class TestPlayer(private val context: Context) {
         surface: Surface? = null,
         seekToMs: Long? = null,
         subtitleTiming: SubtitleTiming = SubtitleTiming(),
+        decoderManager: DecoderManager = DecoderManager(mode, mode),
+        /** Run on the player thread this many milliseconds after playback starts. */
+        actions: List<Pair<Long, (ExoPlayer) -> Unit>> = emptyList(),
         timeoutSeconds: Long = 90,
     ): PlayResult {
         val thread = HandlerThread("TestPlayer").apply { start() }
         val handler = Handler(thread.looper)
         val pcmBytes = AtomicLong()
         val done = CountDownLatch(1)
-        var videoDecoder: String? = null
-        var audioDecoder: String? = null
+        val videoDecoders = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val audioDecoders = java.util.Collections.synchronizedList(mutableListOf<String>())
         var videoCounters: DecoderCounters? = null
         var error: PlaybackException? = null
         lateinit var player: ExoPlayer
 
         handler.post {
-            val renderers = object : PlayMeRenderersFactory(context, mode, subtitleTiming) {
+            val renderers = object : PlayMeRenderersFactory(context, mode, subtitleTiming, decoderManager) {
                 override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioOutputPlaybackParams: Boolean): AudioSink? =
                     object : ForwardingAudioSink(super.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParams)!!) {
                         override fun handleBuffer(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int): Boolean {
@@ -65,9 +72,10 @@ class TestPlayer(private val context: Context) {
                     }
             }
             player = ExoPlayer.Builder(context, renderers).setLooper(thread.looper).build()
+            decoderManager.attach(player)
             player.addAnalyticsListener(object : AnalyticsListener {
                 override fun onVideoDecoderInitialized(eventTime: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
-                    videoDecoder = decoderName
+                    videoDecoders += decoderName
                 }
 
                 override fun onAudioTrackInitialized(eventTime: AnalyticsListener.EventTime, audioTrackConfig: AudioSink.AudioTrackConfig) {
@@ -75,7 +83,7 @@ class TestPlayer(private val context: Context) {
                 }
 
                 override fun onAudioDecoderInitialized(eventTime: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
-                    audioDecoder = decoderName
+                    audioDecoders += decoderName
                 }
 
             })
@@ -97,6 +105,7 @@ class TestPlayer(private val context: Context) {
             player.prepare()
             seekToMs?.let(player::seekTo)
             player.play()
+            for ((delayMs, action) in actions) handler.postDelayed({ action(player) }, delayMs)
         }
 
         val finished = done.await(timeoutSeconds, TimeUnit.SECONDS)
@@ -111,8 +120,10 @@ class TestPlayer(private val context: Context) {
 
         val counters = videoCounters
         return PlayResult(
-            videoDecoder = videoDecoder,
-            audioDecoder = audioDecoder,
+            videoDecoder = videoDecoders.lastOrNull(),
+            audioDecoder = audioDecoders.lastOrNull(),
+            videoDecoders = videoDecoders.toList(),
+            audioDecoders = audioDecoders.toList(),
             videoFrames = counters?.let { it.renderedOutputBufferCount + it.droppedBufferCount + it.skippedOutputBufferCount } ?: 0,
             renderedFrames = counters?.renderedOutputBufferCount ?: 0,
             pcmBytes = pcmBytes.get(),

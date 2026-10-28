@@ -14,7 +14,7 @@ Min SDK 23 · Media3 1.11.1 · arm64-v8a, armeabi-v7a, x86_64, x86 · 16 KB page
 | Module | What it holds |
 |---|---|
 | `media-core` | The native engine: one `libplaymedia.so` with FFmpeg and dav1d linked in statically. Pulled in by the other two. |
-| `media-decoder` | Media3 renderers: `PlayMeRenderersFactory`, `PlayMeVideoRenderer`, `PlayMeAudioRenderer`, `DecoderMode`, `SubtitleTiming`, `DecoderController` |
+| `media-decoder` | Media3 renderers: `PlayMeRenderersFactory`, `DecoderManager`, `DecoderMode`, `SubtitleTiming`, `PlayMeVideoRenderer`, `PlayMeAudioRenderer`, `DecoderController` |
 | `media-info` | `MediaInfoExtractor`, `ThumbnailExtractor` |
 
 ## Setup
@@ -72,17 +72,24 @@ Share one `SubtitleTiming` between factories and the setting survives a player r
 
 ### Switching decoders while playing
 
-A decoder change needs new renderers, so the player is rebuilt. `DecoderController` carries over
-the position, play/pause, speed and track selection, and can step through a fallback chain when a
-decoder fails:
+`DecoderManager` changes decoders in place: the player, its media session and the playlist
+stay, and Media3 moves the track to the new decoder at the current position.
 
 ```kotlin
-val controller = DecoderController(
-    playerProvider = { player },
-    playerRebuilder = { mode -> player = buildPlayer(mode) },
-)
-controller.switchDecoderMode(DecoderMode.FFMPEG)
+val decoders = DecoderManager()
+val player = ExoPlayer.Builder(context, PlayMeRenderersFactory(context, decoderManager = decoders)).build()
+decoders.attach(player)
+
+decoders.selectVideoDecoder(DecoderMode.FFMPEG)
+decoders.activeVideoMode // FFMPEG once it took over; AUTO while the device's decoders play
 ```
+
+`attach` needs ExoPlayer's default track selector (`DefaultTrackSelector`). With no decoder of
+the asked-for kind (say `HARDWARE` for a format the hardware can't decode) the track stays
+unplayed; the app decides what to fall back to.
+
+`DecoderController` instead rebuilds the player for each change, carrying over position,
+play/pause, speed and track selection, for apps without a media session.
 
 ## Media info
 
