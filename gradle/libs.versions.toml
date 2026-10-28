@@ -1,0 +1,28 @@
+[versions]
+androidCompileSdk = "36"
+androidMinSdk = "23"
+androidTargetSdk = "36"
+agp = "9.4.0"
+kotlin = "2.4.20"
+androidxMedia3 = "1.11.1"
+coroutines = "1.9.0"
+cmake = "3.22.1"
+ndk = "25.2.9519653"
+mavenPublish = "0.37.0"
+androidxAnnotation = "1.10.0"
+junit = "4.13.2"
+
+[libraries]
+androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "androidxAnnotation" }
+androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "androidxMedia3" }
+androidx-media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "androidxMedia3" }
+androidx-media3-decoder = { group = "androidx.media3", name = "media3-decoder", version.ref = "androidxMedia3" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+
+[plugins]
+androidLibrary = { id = "com.android.library", version.ref = "agp" }
+kotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+mavenPublish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublish" }
+
