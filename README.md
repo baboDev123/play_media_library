@@ -1,36 +1,26 @@
-# PlayMedia Library
+# PlayMedia
 
-[![Release](https://jitpack.io/v/baboDev123/play_media_library.svg)](https://jitpack.io/#baboDev123/play_media_library)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Platform](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com)
-[![Media3](https://img.shields.io/badge/Media3-1.11.1-orange.svg)](https://github.com/androidx/media)
-[![API](https://img.shields.io/badge/API-23%2B-brightgreen.svg?style=flat)](https://android-arsenal.com/api?level=23)
+FFmpeg decoding, media info and thumbnails for Android **Media3 (ExoPlayer)**.
 
-**PlayMedia Library** is an enterprise-grade media engine and codec extension built for Android **Media3 (ExoPlayer)**. Engineered with a high-throughput native pipeline, it delivers direct surface video rendering, comprehensive multi-channel audio/video decoding, seamless runtime decoder switching, and non-blocking stream intelligence.
+- **Video**: H.264, HEVC (8 and 10-bit), VP8, VP9, AV1 (dav1d), MPEG-1/2, MPEG-4 Part 2, H.263, VC-1, MJPEG
+- **Audio**: AC-3, E-AC-3 (incl. JOC), DTS, DTS-HD (core), TrueHD, FLAC, Opus, Vorbis, ALAC, AAC, MP1/2/3, AMR-NB/WB, G.711
+- **Media info**: streams, codecs, resolution, frame rate, HDR type and bit depth, rotation, languages, chapters, attachments (subtitle fonts), cover art
+- **Thumbnails**: key frame or exact frame, upright, scaled to fit, cover art for audio
 
----
+Min SDK 23 · Media3 1.11.1 · arm64-v8a, armeabi-v7a, x86_64, x86 · 16 KB page aligned
 
-## Key Capabilities
+## Modules
 
-* **Direct Hardware Surface Pipeline**: Utilizes optimized native `ANativeWindow` display pipelines, delivering high frame rates (up to 60fps/120fps) with minimal CPU and battery consumption.
-* **Extended Codec Matrix**:
-  * **Audio**: AC-3 (Dolby Digital), E-AC-3 (Dolby Digital Plus), DTS, DTS-HD, TrueHD, FLAC, Opus, Vorbis, ALAC, AAC.
-  * **Video**: H.264 (AVC), H.265 (HEVC), VP8, VP9, AV1 (dav1d), MPEG-2.
-* **Intelligent Decoder Switching**: Effortlessly transition between Android `MediaCodec` (Hardware) and native software fallback at runtime without playback interruption or timestamp desynchronization.
-* **Asynchronous Stream Intelligence**: Multi-threaded container analysis for instant retrieval of tracks, sample rates, color spaces, languages, subtitles, and chapters.
-* **High-Precision Frame Extraction**: Native keyframe extraction and downsampling engine that produces Android `Bitmap` representations directly for gallery thumbnails and timeline scrubbing.
-* **Clean & Modern Architecture**: Clean-room implementation engineered with strict Apache 2.0 compliance and full interop across Kotlin and Java/Groovy codebases.
+| Module | What it holds |
+|---|---|
+| `media-core` | The native engine: one `libplaymedia.so` with FFmpeg and dav1d linked in statically. Pulled in by the other two. |
+| `media-decoder` | Media3 renderers: `PlayMeRenderersFactory`, `PlayMeVideoRenderer`, `PlayMeAudioRenderer`, `DecoderMode`, `SubtitleTiming`, `DecoderController` |
+| `media-info` | `MediaInfoExtractor`, `ThumbnailExtractor` |
 
----
+## Setup
 
-## Installation
-
-### 1. Configure Repository
-
-Add JitPack to your project repository configuration:
-
-#### **Kotlin DSL (`settings.gradle.kts`)**
 ```kotlin
+// settings.gradle.kts
 dependencyResolutionManagement {
     repositories {
         google()
@@ -38,188 +28,114 @@ dependencyResolutionManagement {
         maven { url = uri("https://jitpack.io") }
     }
 }
-```
 
-#### **Groovy DSL (`settings.gradle` or root `build.gradle`)**
-```groovy
-dependencyResolutionManagement {
-    repositories {
-        google()
-        mavenCentral()
-        maven { url 'https://jitpack.io' }
-    }
-}
-```
-
----
-
-### 2. Add Dependencies
-
-Add the required modules to your application or feature module:
-
-#### **Kotlin DSL (`build.gradle.kts`)**
-```kotlin
+// build.gradle.kts
 dependencies {
-    // Core Media3 Audio/Video Decoders & Dynamic Switcher
-    implementation("com.github.baboDev123.play_media_library:media-decoder:v1.0.0")
-
-    // High-Performance Metadata Analyzer & Frame Extractor
-    implementation("com.github.baboDev123.play_media_library:media-info:v1.0.0")
+    implementation("com.github.baboDev123.play_media_library:media-decoder:<version>")
+    implementation("com.github.baboDev123.play_media_library:media-info:<version>")
 }
 ```
 
-#### **Groovy DSL (`build.gradle`)**
-```groovy
-dependencies {
-    // Core Media3 Audio/Video Decoders & Dynamic Switcher
-    implementation 'com.github.baboDev123.play_media_library:media-decoder:v1.0.0'
+To build it yourself, run `ffmpeg/build.sh` once (it downloads FFmpeg and dav1d and builds them
+for every ABI into `ffmpeg/output`), then build with Gradle as usual.
 
-    // High-Performance Metadata Analyzer & Frame Extractor
-    implementation 'com.github.baboDev123.play_media_library:media-info:v1.0.0'
-}
-```
+## Playback
 
----
-
-## Quick Start
-
-### 1. Initializing ExoPlayer with `PlayMeRenderersFactory`
-
-Integrate native software decoders into your ExoPlayer instance with custom renderer prioritization:
-
-#### **Kotlin DSL**
 ```kotlin
-import androidx.media3.exoplayer.ExoPlayer
-import io.github.playme.media.decoder.DecoderMode
-import io.github.playme.media.decoder.PlayMeRenderersFactory
-
-val renderersFactory = PlayMeRenderersFactory(context)
-    .setDecoderMode(DecoderMode.AUTO) // Options: AUTO, HARDWARE, SOFTWARE
-
-val player = ExoPlayer.Builder(context)
-    .setRenderersFactory(renderersFactory)
-    .build()
+val renderers = PlayMeRenderersFactory(context, DecoderMode.AUTO)
+val player = ExoPlayer.Builder(context, renderers).build()
 ```
 
-#### **Groovy DSL**
-```groovy
-import androidx.media3.exoplayer.ExoPlayer
-import io.github.playme.media.decoder.DecoderMode
-import io.github.playme.media.decoder.PlayMeRenderersFactory
+| `DecoderMode` | Video | Audio |
+|---|---|---|
+| `AUTO` | Device decoders, FFmpeg for what they can't play | Device decoders, FFmpeg for the rest |
+| `HARDWARE` | Hardware decoders only | Device decoders, FFmpeg for the rest |
+| `SYSTEM_SOFTWARE` | Android's software decoders only | Device decoders, FFmpeg for the rest |
+| `FFMPEG` | FFmpeg first | FFmpeg first |
 
-def renderersFactory = new PlayMeRenderersFactory(context)
-    .setDecoderMode(DecoderMode.AUTO)
+FFmpeg video is drawn straight onto the player's `Surface` (`SurfaceView` or `TextureView`) as
+YV12: 8-bit 4:2:0 video, nearly all of it, is copied plane by plane with no colour conversion on
+the CPU. Media3 times every frame and drops late ones. Audio comes out as 16-bit PCM, so Media3's
+speed, pitch and volume processing still apply.
 
-def player = new ExoPlayer.Builder(context)
-    .setRenderersFactory(renderersFactory)
-    .build()
+### Subtitle timing
+
+```kotlin
+val timing = SubtitleTiming()
+val renderers = PlayMeRenderersFactory(context, DecoderMode.AUTO, timing)
+
+timing.delayMs = 500   // show subtitles half a second later
+timing.speed = 1.042f  // subtitles made for 25 fps on a 23.976 fps video
 ```
 
----
+Share one `SubtitleTiming` between factories and the setting survives a player rebuild.
 
-### 2. Runtime Decoder Switching
+### Switching decoders while playing
 
-Seamlessly toggle between Hardware acceleration and Software decoding while maintaining playback position, audio sync, and speed:
+A decoder change needs new renderers, so the player is rebuilt. `DecoderController` carries over
+the position, play/pause, speed and track selection, and can step through a fallback chain when a
+decoder fails:
 
 ```kotlin
 val controller = DecoderController(
-    playerProvider = { activePlayer },
-    playerRebuilder = { selectedMode ->
-        // Re-initialize player instance with the updated DecoderMode
-    }
+    playerProvider = { player },
+    playerRebuilder = { mode -> player = buildPlayer(mode) },
 )
-
-// Dynamically transition to native software decoding
-controller.switchDecoderMode(DecoderMode.SOFTWARE)
+controller.switchDecoderMode(DecoderMode.FFMPEG)
 ```
 
----
+## Media info
 
-### 3. Stream Metadata Analysis
-
-Extract comprehensive container metadata, multi-audio tracks, subtitle formats, and chapter markers. Supports **Android 10+ Scoped Storage (`content://` Uri)**, `ParcelFileDescriptor`, and direct file paths.
-
-#### **Kotlin Coroutines (`suspend`)**
 ```kotlin
-lifecycleScope.launch {
-    // Android 10+ Scoped Storage (content:// Uri)
-    val info = MediaInfoExtractor.extract(context, contentUri)
-
-    // Or via direct path / network URL:
-    // val info = MediaInfoExtractor.extract("/path/to/media.mkv")
-
-    info?.let { media ->
-        Log.d("MediaInfo", "Format: ${media.formatName}, Duration: ${media.durationMs}ms")
-        Log.d("MediaInfo", "Resolution: ${media.resolutionFormatted}")
-        
-        media.audioStreams.forEach { stream ->
-            Log.d("MediaInfo", "Audio: ${stream.codecName}, Channels: ${stream.channels}, Lang: ${stream.language}")
-        }
-    }
-}
+val info = MediaInfoExtractor.extract(context, uri)      // suspend; also file paths and descriptors
+info.primaryVideo?.hdrType                               // NONE, HDR10, HLG, DOLBY_VISION
+info.audioStreams.map { it.language }
+info.chapters
+info.embeddedFonts                                       // for ASS subtitles
 ```
 
-#### **Java / Groovy (Callbacks & Synchronous API)**
-```groovy
-// Synchronous invocation with Content Uri or Path
-def info = MediaInfoExtractor.extractSync(context, contentUri)
+Network files are read through an `android.media.MediaDataSource` with random access, so
+containers that keep their index at the end (most MP4s) work too:
 
-// Asynchronous callback invocation
-MediaInfoExtractor.extractAsync(context, contentUri, new MediaInfoExtractor.Callback() {
-    @Override
-    void onSuccess(MediaInfo info) {
-        println "Detected resolution: ${info.resolutionFormatted}"
-    }
-
-    @Override
-    void onError(Throwable error) {
-        error.printStackTrace()
-    }
+```kotlin
+val info = MediaInfoExtractor.extract(object : MediaDataSource() {
+    override fun getSize() = remoteFile.length
+    override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int) =
+        remoteFile.read(position, buffer, offset, size)
+    override fun close() = Unit
 })
 ```
 
----
+A plain `InputStream` works too, but only forwards. Every read gives up after a timeout
+(`timeoutMs`, 15 s by default) and errors are thrown as `PlayMediaException`.
 
-### 4. Fast Thumbnail Extraction
+## Thumbnails
 
-Extract exact timestamp frames scaled directly to target dimensions. Fully supports **`content://` Uris (Android 10+)**:
-
-#### **Kotlin Coroutines**
 ```kotlin
-lifecycleScope.launch {
-    // Android 10+ Scoped Storage (content:// Uri)
-    val thumbnailBitmap = ThumbnailExtractor.getFrameAt(
-        context = context,
-        uri = contentUri,
-        timeUs = 5_000_000L, // 5.0 seconds
-        targetWidth = 320,
-        targetHeight = 180
-    )
-}
+val bitmap = ThumbnailExtractor.getFrameAt(context, uri, timeUs = 5_000_000, targetWidth = 320, targetHeight = 180)
 ```
 
-#### **Groovy / Java**
-```groovy
-def thumbnail = ThumbnailExtractor.getFrameAtSync(context, contentUri, 5000000L, 320, 180)
-```
+The default is the key frame at or before the time, which is fast; `exact = true` decodes on to
+the frame at the time. Frames come out upright and fitted inside the target size. Audio files give
+their cover picture.
 
----
+## Java
 
-## Technical Specifications
+The blocking (`extractSync`, `getFrameAtSync`) and callback (`extractAsync`, `getFrameAtAsync`)
+functions are `@JvmStatic` with `@JvmOverloads`.
 
-| Parameter | Specification |
-| :--- | :--- |
-| **Minimum SDK** | Android 6.0 (API level 23) |
-| **Target SDK** | Android 16 (API level 36) |
-| **Compile SDK** | Android API level 36 |
-| **Native Media Core** | FFmpeg Native Engine (`libavcodec`, `libavformat`, `libswresample`, `libswscale`, `libavutil`) |
-| **Architecture** | `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64` |
-| **Media3 Base** | AndroidX Media3 `1.11.1` |
-| **Toolchain** | Android NDK `r28+`, C++17 Standard |
+## Tests
 
----
+- `./gradlew :media-decoder:testDebugUnitTest`: subtitle timing
+- `./gradlew :media-tests:connectedDebugAndroidTest`: plays AndroidX Media's sample media on a
+  device. FFmpeg must give as many video frames as the device's own decoder and the full length
+  of audio. It also checks media info from every kind of input, thumbnails, timeouts, and that
+  native memory stays flat over repeated use.
 
-## License
+## Licences
 
-This project is licensed under the **Apache License, Version 2.0**.
-See the [LICENSE](LICENSE) file for more information.
+PlayMedia's own code is under the Apache License 2.0 (`LICENSE`). It links
+[FFmpeg](https://ffmpeg.org) under the **LGPL 2.1 or later** and
+[dav1d](https://code.videolan.org/videolan/dav1d) under the BSD 2-Clause licence. FFmpeg is built
+without `--enable-gpl` and `--enable-nonfree`, and `ffmpeg/build.sh` refuses a GPL configuration.
+Apps that ship PlayMedia must follow those licences: see `NOTICE`.

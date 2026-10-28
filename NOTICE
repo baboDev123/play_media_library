@@ -1,0 +1,20 @@
+PlayMedia
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This library includes, in media-core's native library (libplaymedia.so):
+
+FFmpeg (https://ffmpeg.org), licensed under the GNU Lesser General Public License
+version 2.1 or later. It is built from unmodified FFmpeg source without GPL or
+nonfree components; the exact version, source location and configuration are in
+ffmpeg/build.sh, and ffmpeg/output/BUILD_INFO after a build. FFmpeg is a trademark
+of Fabrice Bellard, originator of the FFmpeg project.
+
+dav1d (https://code.videolan.org/videolan/dav1d), Copyright (c) 2018-2024,
+VideoLAN and dav1d authors, licensed under the BSD 2-Clause License.
+
+An app that ships this library must, under the LGPL, credit FFmpeg, include the
+LGPL licence text, offer FFmpeg's source code (or a link to the exact version
+used), and allow FFmpeg to be replaced, which ffmpeg/build.sh makes possible.
+
+The test media in media-tests come from AndroidX Media
+(https://github.com/androidx/media) under the Apache License 2.0.

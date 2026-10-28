@@ -1,0 +1,8 @@
+# JitPack builds the native dependencies first; ffmpeg/build.sh needs the NDK and python3.
+jdk:
+  - openjdk17
+before_install:
+  - yes | sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" > /dev/null || true
+  - ./ffmpeg/build.sh
+install:
+  - ./gradlew :media-core:publishToMavenLocal :media-decoder:publishToMavenLocal :media-info:publishToMavenLocal
