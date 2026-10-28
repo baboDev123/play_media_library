@@ -3,7 +3,7 @@
 All notable changes to PlayMedia. Versions follow [Semantic Versioning](https://semver.org):
 a major version for breaking API changes, a minor one for new features, a patch for fixes.
 
-## [1.1.0] - 2026-10-28
+## [2.1.0] - 2026-10-28
 
 ### Added
 - **`media-extractor`**: FFmpeg reads containers Media3 can't.
@@ -22,9 +22,10 @@ a major version for breaking API changes, a minor one for new features, a patch 
 - 17 device tests: FFmpeg reads MP4, Matroska, WebM, MPEG-TS, AVI, FLV, 3GP, AMR and FLAC
   to the same frames and audio as Media3; seeking; files Media3 reads stay with Media3.
 
-## [1.0.0] - 2026-10-28
+## [2.0.0] - 2026-10-28
 
-First release of the rebuilt engine.
+The engine rebuilt. Breaking: the 1.0.0 API (`PlayMeNativeBridge`, `PlayMeTextRenderer`, the
+`subtitleDelayMilliseconds` extensions, the old renderer constructors) is gone.
 
 ### Added
 - **`media-core`**: one native library (`libplaymedia.so`) with FFmpeg 7.1.1 and dav1d 1.5.1
@@ -46,10 +47,11 @@ First release of the rebuilt engine.
 - 45 device tests against AndroidX Media's sample media: frame counts equal to the device
   decoders', full-length audio, on-screen colours, decoder switching, native memory.
 
-## [0.x] - before 2026-10-28
+## [1.0.0]
 
-Prototype. Its native code never built against FFmpeg (it compiled in stub mode) and was
-replaced in 1.0.0.
+Prototype. Its native code never built against FFmpeg (it compiled in stub mode); 2.0.0
+replaced it.
 
-[1.1.0]: https://github.com/baboDev123/play_media_library/compare/v1.0.0...v1.1.0
+[2.1.0]: https://github.com/baboDev123/play_media_library/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/baboDev123/play_media_library/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/baboDev123/play_media_library/releases/tag/v1.0.0

@@ -4,7 +4,7 @@
 
 **FFmpeg decoding, container reading, media info and thumbnails for Android Media3 (ExoPlayer)**
 
-[![Version](https://img.shields.io/badge/version-1.1.0-2f81f7)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.1.0-2f81f7)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-Apache%202.0-3fb950)](LICENSE)
 [![Media3](https://img.shields.io/badge/Media3-1.11.1-f78166)](https://github.com/androidx/media)
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-7.1.1%20LGPL-8957e5)](https://ffmpeg.org)
@@ -49,9 +49,9 @@ dependencyResolutionManagement {
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("com.github.baboDev123.play_media_library:media-decoder:v1.1.0")   // renderers, decoder switching
-    implementation("com.github.baboDev123.play_media_library:media-extractor:v1.1.0") // container fallback
-    implementation("com.github.baboDev123.play_media_library:media-info:v1.1.0")      // media info, thumbnails
+    implementation("com.github.baboDev123.play_media_library:media-decoder:v2.1.0")   // renderers, decoder switching
+    implementation("com.github.baboDev123.play_media_library:media-extractor:v2.1.0") // container fallback
+    implementation("com.github.baboDev123.play_media_library:media-info:v2.1.0")      // media info, thumbnails
 }
 ```
 
