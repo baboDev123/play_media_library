@@ -14,10 +14,17 @@ internal object MediaInfoNativeBridge {
         }
     }
 
+    // Path based
     @JvmStatic
     external fun nativeParseMediaInfo(filePath: String): MediaInfo?
 
     @JvmStatic
     external fun nativeExtractFrameAtTime(filePath: String, timeUs: Long, targetWidth: Int, targetHeight: Int): Bitmap?
-}
 
+    // FileDescriptor / Scoped Storage (Android 10+) based
+    @JvmStatic
+    external fun nativeParseMediaInfoFd(fd: Int): MediaInfo?
+
+    @JvmStatic
+    external fun nativeExtractFrameAtTimeFd(fd: Int, timeUs: Long, targetWidth: Int, targetHeight: Int): Bitmap?
+}

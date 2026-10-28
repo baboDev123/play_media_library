@@ -1,7 +1,10 @@
 #include "media_info_reader.h"
 #include "thumbnail_extractor.h"
+#include <cstdio>
 
 extern "C" {
+
+// --- Path Based APIs ---
 
 JNIEXPORT jobject JNICALL
 Java_io_github_playme_media_info_MediaInfoNativeBridge_nativeParseMediaInfo(
@@ -23,5 +26,24 @@ Java_io_github_playme_media_info_MediaInfoNativeBridge_nativeExtractFrameAtTime(
     return result;
 }
 
-} // extern "C"
+// --- FileDescriptor / Scoped Storage (Android 10+) APIs ---
 
+JNIEXPORT jobject JNICALL
+Java_io_github_playme_media_info_MediaInfoNativeBridge_nativeParseMediaInfoFd(
+    JNIEnv* env, jclass, jint fd) {
+    if (fd < 0) return nullptr;
+    char pipeUrl[64];
+    snprintf(pipeUrl, sizeof(pipeUrl), "pipe:%d", fd);
+    return MediaInfoReaderNative::parseMediaInfo(env, pipeUrl);
+}
+
+JNIEXPORT jobject JNICALL
+Java_io_github_playme_media_info_MediaInfoNativeBridge_nativeExtractFrameAtTimeFd(
+    JNIEnv* env, jclass, jint fd, jlong timeUs, jint targetWidth, jint targetHeight) {
+    if (fd < 0) return nullptr;
+    char pipeUrl[64];
+    snprintf(pipeUrl, sizeof(pipeUrl), "pipe:%d", fd);
+    return ThumbnailExtractorNative::extractFrameAtTime(env, pipeUrl, timeUs, targetWidth, targetHeight);
+}
+
+} // extern "C"

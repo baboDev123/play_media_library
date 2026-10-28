@@ -137,12 +137,17 @@ controller.switchDecoderMode(DecoderMode.SOFTWARE)
 
 ### 3. Stream Metadata Analysis
 
-Extract comprehensive container metadata, multi-audio tracks, subtitle formats, and chapter markers.
+Extract comprehensive container metadata, multi-audio tracks, subtitle formats, and chapter markers. Supports **Android 10+ Scoped Storage (`content://` Uri)**, `ParcelFileDescriptor`, and direct file paths.
 
 #### **Kotlin Coroutines (`suspend`)**
 ```kotlin
 lifecycleScope.launch {
-    val info = MediaInfoExtractor.extract("/path/to/media.mkv")
+    // Android 10+ Scoped Storage (content:// Uri)
+    val info = MediaInfoExtractor.extract(context, contentUri)
+
+    // Or via direct path / network URL:
+    // val info = MediaInfoExtractor.extract("/path/to/media.mkv")
+
     info?.let { media ->
         Log.d("MediaInfo", "Format: ${media.formatName}, Duration: ${media.durationMs}ms")
         Log.d("MediaInfo", "Resolution: ${media.resolutionFormatted}")
@@ -156,11 +161,11 @@ lifecycleScope.launch {
 
 #### **Java / Groovy (Callbacks & Synchronous API)**
 ```groovy
-// Synchronous invocation
-def info = MediaInfoExtractor.extractSync("/path/to/media.mkv")
+// Synchronous invocation with Content Uri or Path
+def info = MediaInfoExtractor.extractSync(context, contentUri)
 
 // Asynchronous callback invocation
-MediaInfoExtractor.extractAsync("/path/to/media.mkv", new MediaInfoExtractor.Callback() {
+MediaInfoExtractor.extractAsync(context, contentUri, new MediaInfoExtractor.Callback() {
     @Override
     void onSuccess(MediaInfo info) {
         println "Detected resolution: ${info.resolutionFormatted}"
@@ -177,13 +182,15 @@ MediaInfoExtractor.extractAsync("/path/to/media.mkv", new MediaInfoExtractor.Cal
 
 ### 4. Fast Thumbnail Extraction
 
-Extract exact timestamp frames scaled directly to target dimensions for video scrubbing previews or media cards:
+Extract exact timestamp frames scaled directly to target dimensions. Fully supports **`content://` Uris (Android 10+)**:
 
 #### **Kotlin Coroutines**
 ```kotlin
 lifecycleScope.launch {
+    // Android 10+ Scoped Storage (content:// Uri)
     val thumbnailBitmap = ThumbnailExtractor.getFrameAt(
-        filePath = "/path/to/video.mp4",
+        context = context,
+        uri = contentUri,
         timeUs = 5_000_000L, // 5.0 seconds
         targetWidth = 320,
         targetHeight = 180
@@ -193,7 +200,7 @@ lifecycleScope.launch {
 
 #### **Groovy / Java**
 ```groovy
-def thumbnail = ThumbnailExtractor.getFrameAtSync("/path/to/video.mp4", 5000000L, 320, 180)
+def thumbnail = ThumbnailExtractor.getFrameAtSync(context, contentUri, 5000000L, 320, 180)
 ```
 
 ---
