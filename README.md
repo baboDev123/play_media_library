@@ -203,7 +203,9 @@ def thumbnail = ThumbnailExtractor.getFrameAtSync("/path/to/video.mp4", 5000000L
 | Parameter | Specification |
 | :--- | :--- |
 | **Minimum SDK** | Android 6.0 (API level 23) |
-| **Target SDK** | Android 15 (API level 36) |
+| **Target SDK** | Android 16 (API level 36) |
+| **Compile SDK** | Android API level 36 |
+| **Native Media Core** | FFmpeg Native Engine (`libavcodec`, `libavformat`, `libswresample`, `libswscale`, `libavutil`) |
 | **Architecture** | `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64` |
 | **Media3 Base** | AndroidX Media3 `1.11.1` |
 | **Toolchain** | Android NDK `r28+`, C++17 Standard |
