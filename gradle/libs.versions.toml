@@ -2,12 +2,12 @@
 androidCompileSdk = "36"
 androidMinSdk = "23"
 androidTargetSdk = "36"
-agp = "9.4.0"
+agp = "9.2.1"
 kotlin = "2.4.20"
 androidxMedia3 = "1.11.1"
 coroutines = "1.9.0"
 cmake = "3.22.1"
-ndk = "25.2.9519653"
+ndk = "28.2.13676358"
 mavenPublish = "0.37.0"
 androidxAnnotation = "1.10.0"
 junit = "4.13.2"
@@ -23,6 +23,5 @@ junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]
 androidLibrary = { id = "com.android.library", version.ref = "agp" }
-kotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 mavenPublish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublish" }
 
