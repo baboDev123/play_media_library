@@ -2,22 +2,50 @@
 
 # PlayMedia
 
-**FFmpeg decoding, container reading, media info and thumbnails for Android Media3 (ExoPlayer)**
+### The playback engine for Android players that have to open everything.
 
-[![Version](https://img.shields.io/badge/version-2.1.0-2f81f7)](CHANGELOG.md)
+FFmpeg decoding, container reading, media info and thumbnails for **Media3 (ExoPlayer)**:
+hardware first, FFmpeg wherever the device gives up.
+
+[![Version](https://img.shields.io/badge/version-2.1.1-2f81f7)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-Apache%202.0-3fb950)](LICENSE)
 [![Media3](https://img.shields.io/badge/Media3-1.11.1-f78166)](https://github.com/androidx/media)
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-7.1.1%20LGPL-8957e5)](https://ffmpeg.org)
+[![dav1d](https://img.shields.io/badge/dav1d-1.5.1-8957e5)](https://code.videolan.org/videolan/dav1d)
 [![Min SDK](https://img.shields.io/badge/minSdk-23-d29922)](https://developer.android.com/about/versions/marshmallow)
 [![16 KB pages](https://img.shields.io/badge/16%20KB%20pages-ready-3fb950)](https://developer.android.com/guide/practices/page-sizes)
+[![Device tests](https://img.shields.io/badge/device%20tests-62-3fb950)](#testing)
 
-Plays what the device can't, opens what Media3 can't, and describes any file.
-
-[Features](#features) · [Installation](#installation) · [Quick start](#quick-start) · [Guides](#guides) · [How it works](#how-it-works) · [Testing](#testing) · [Licence](#licence)
+[Why PlayMedia](#why-playmedia) ·
+[Features](#features) ·
+[Installation](#installation) ·
+[Quick start](#quick-start) ·
+[Guides](#guides) ·
+[Architecture](#architecture) ·
+[Performance](#performance) ·
+[Testing](#testing) ·
+[FAQ](#faq) ·
+[Licence](#licence)
 
 </div>
 
 ---
+
+## Why PlayMedia
+
+Media3 plays what the phone's decoders and its own extractors understand. A real video
+library holds more than that: AC-3 and DTS soundtracks on phones without the licence, 10-bit
+HEVC on older chips, AVI and FLV files, MP4s with indexes too big for the Java heap. PlayMedia
+closes those gaps without taking anything away from Media3:
+
+- **Hardware first.** The device's decoders keep every format they can play, 4K at 60 fps and
+  8K included, so playback stays smooth and light on the battery.
+- **FFmpeg for the rest.** Formats the device can't decode, and containers Media3 can't read,
+  go to FFmpeg automatically.
+- **One player, live switching.** Decoders change while playing, without rebuilding the player
+  or its media session.
+- **Small and clean.** One native library with only the decoders, parsers and demuxers used;
+  LGPL FFmpeg with no GPL or nonfree code; 16 KB page aligned for Android 15+.
 
 ## Features
 
@@ -25,13 +53,22 @@ Plays what the device can't, opens what Media3 can't, and describes any file.
 |---|---|
 | 🎬 **Video decoding** | H.264, HEVC (8 and 10-bit), VP8, VP9, AV1 (dav1d), MPEG-1/2, MPEG-4 Part 2, H.263, VC-1, MJPEG, drawn with OpenGL ES in the frame's own colours |
 | 🔊 **Audio decoding** | AC-3, E-AC-3 (JOC), DTS, DTS-HD (core), TrueHD, FLAC, Opus, Vorbis, ALAC, AAC, MP1/2/3, AMR-NB/WB, G.711, up to 8 channels |
-| 🔀 **Live decoder switching** | `AUTO`, `HARDWARE`, `SYSTEM_SOFTWARE`, `FFMPEG`, changed while playing without rebuilding the player or its media session |
+| ⚡ **High resolution** | 4K60 and 8K stay on the hardware decoder in `AUTO`, even past the size and frame rate the decoder claims |
+| 🔀 **Live decoder switching** | `AUTO`, `HARDWARE`, `SYSTEM_SOFTWARE`, `FFMPEG`, changed while playing |
 | 📦 **Container fallback** | FFmpeg reads what Media3 can't: MP4s with huge indexes (a 27-hour recording), unknown or broken containers |
 | 🔎 **Media info** | Streams, codecs, resolution, frame rate, HDR type and bit depth, rotation, languages, chapters, attachments, cover art |
 | 🖼️ **Thumbnails** | Key frame or exact frame, upright, fitted to a size; cover art for audio |
 | ⏱️ **Subtitle timing** | Delay and speed correction for out-of-sync subtitles |
 
-**Compatibility:** min SDK 23 · Media3 1.11.1 · `arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86` · 16 KB page aligned (Android 15+)
+### Requirements
+
+| | |
+|---|---|
+| Android | API 23 (6.0) and newer |
+| Media3 | 1.11.1 |
+| ABIs | `arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86` |
+| Page size | 4 KB and 16 KB (Android 15+) |
+| Languages | Kotlin and Java |
 
 ## Installation
 
@@ -49,20 +86,38 @@ dependencyResolutionManagement {
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("com.github.baboDev123.play_media_library:media-decoder:v2.1.0")   // renderers, decoder switching
-    implementation("com.github.baboDev123.play_media_library:media-extractor:v2.1.0") // container fallback
-    implementation("com.github.baboDev123.play_media_library:media-info:v2.1.0")      // media info, thumbnails
+    implementation("com.github.baboDev123.play_media_library:media-decoder:v2.1.1")   // renderers, decoder switching
+    implementation("com.github.baboDev123.play_media_library:media-extractor:v2.1.1") // container fallback
+    implementation("com.github.baboDev123.play_media_library:media-info:v2.1.1")      // media info, thumbnails
 }
 ```
 
 Each module brings `media-core`, the native engine, with it. Take only the ones you need.
 
-| Module | Contents |
+| Module | What it contains |
 |---|---|
-| `media-core` | `libplaymedia.so`: FFmpeg and dav1d, statically linked; `PlayMediaNative` |
+| `media-core` | `libplaymedia.so` (FFmpeg and dav1d, statically linked) and `PlayMediaNative` |
 | `media-decoder` | `PlayMeRenderersFactory`, `DecoderManager`, `DecoderMode`, `SubtitleTiming`, `PlayMeVideoRenderer`, `PlayMeAudioRenderer`, `DecoderController` |
 | `media-extractor` | `PlayMeExtractorsFactory`, `FfmpegExtractor`, `FfmpegFallback` |
 | `media-info` | `MediaInfoExtractor`, `ThumbnailExtractor` |
+
+<details>
+<summary><b>Building against a local checkout</b></summary>
+
+Run `./ffmpeg/build.sh` in the checkout once, then point the app at it:
+
+```kotlin
+// settings.gradle.kts of the app
+includeBuild("../playme-media") {
+    dependencySubstitution {
+        substitute(module("io.github.playme:media-decoder")).using(project(":media-decoder"))
+        substitute(module("io.github.playme:media-extractor")).using(project(":media-extractor"))
+        substitute(module("io.github.playme:media-info")).using(project(":media-info"))
+    }
+}
+```
+
+</details>
 
 ## Quick start
 
@@ -79,7 +134,7 @@ player.prepare()
 player.play()
 ```
 
-That's all a player needs: the device's decoders play what they can and FFmpeg the rest, and
+That is all a player needs. The device's decoders play what they can and FFmpeg the rest;
 Media3 opens what it can and FFmpeg the rest.
 
 ## Guides
@@ -88,12 +143,19 @@ Media3 opens what it can and FFmpeg the rest.
 
 | `DecoderMode` | Video | Audio |
 |---|---|---|
-| `AUTO` *(default)* | Device decoders; FFmpeg for what they can't play | Device decoders; FFmpeg for the rest |
+| `AUTO` *(default)* | Device decoders; FFmpeg only for codecs or profiles no hardware decoder handles | Device decoders; FFmpeg for the rest |
 | `HARDWARE` | Hardware decoders only | Device decoders |
 | `SYSTEM_SOFTWARE` | Android's software decoders only | Android's software decoders only |
 | `FFMPEG` | FFmpeg; the device only for formats FFmpeg lacks | FFmpeg; the device for the rest |
 
 Android's audio decoders are software, so `HARDWARE` audio means the device's decoders.
+
+> [!NOTE]
+> **Why `AUTO` keeps heavy video on the hardware.** Many decoders list a lower limit than they
+> actually reach, say 4K at 30 fps, and Media3 then marks a 4K60 or 8K stream as beyond them.
+> A phone CPU can't decode such a stream in software in real time, so `AUTO` only looks at the
+> codec and profile. If the hardware decoder fails to start after all, Media3 tries the
+> device's next decoder, and the app can switch to `FFMPEG` from its error handler.
 
 ### Switching decoders while playing
 
@@ -139,10 +201,6 @@ override fun onPlayerError(error: PlaybackException) {
 FFmpeg only reads the container; decoding still goes through the renderers, so these files
 play like any other. Their formats have ids `playmedia/<stream>`. Subtitle streams inside
 files read by FFmpeg aren't passed on yet.
-
-> **Measured:** a 27-hour MP4 with a 114 MB index failed in Media3 with `OutOfMemoryError` on a
-> 256 MB heap. Through FFmpeg it plays within a 192 MB heap, using 5–16 MB of it, with the full
-> 27:02 duration and seeking anywhere.
 
 ### Subtitle timing
 
@@ -199,7 +257,7 @@ their cover picture.
 The blocking (`extractSync`, `getFrameAtSync`) and callback (`extractAsync`, `getFrameAtAsync`)
 functions are `@JvmStatic` with `@JvmOverloads`; renderers and factories are ordinary classes.
 
-## How it works
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -210,26 +268,38 @@ flowchart LR
     FX --> Tracks
     Tracks --> Manager{DecoderManager}
     Manager -- AUTO, HARDWARE, SYSTEM_SOFTWARE --> Device[MediaCodec]
-    Manager -- FFMPEG, or as fallback --> FD[FFmpeg decoders]
-    FD --> GL[OpenGL ES on the Surface]
+    Manager -- FFMPEG, or what the device can't decode --> FD[FFmpeg decoders]
+    Device --> Surface[Surface]
+    FD --> GL[OpenGL ES] --> Surface
     FD --> Sink[Media3 audio sink]
 ```
 
 - **One native library.** `libplaymedia.so` holds FFmpeg 7.1.1 and dav1d 1.5.1, built by
   `ffmpeg/build.sh` with only the decoders, parsers and demuxers used, no GPL code, and 16 KB
   page alignment.
-- **Every frame.** The video decoder runs FFmpeg on its own thread and hands over frames as
-  they finish, so multithreaded decoding and B-frames lose none, the last ones included.
-- **Timed by Media3.** Media3 decides when each frame shows and drops late ones; frames are
-  drawn with OpenGL ES, the GPU turning YUV into RGB.
+- **Gated renderers.** `PlayMeRenderersFactory` builds a renderer for each kind of decoder;
+  `DecoderManager` decides which of them may take a format and tells Media3 when that changes.
+- **Every frame.** The FFmpeg video decoder runs on its own thread with frame and slice
+  threading (one thread per core, up to 8) and hands over frames as they finish, so
+  multithreaded decoding and B-frames lose none, the last ones included.
+- **Timed by Media3.** Media3 decides when each frame shows and drops late ones; FFmpeg frames
+  are drawn with OpenGL ES, the GPU turning YUV into RGB with the frame's own colour matrix.
 - **Memory.** Large indexes stay in native memory; repeated playback, seeking and probing keep
   native memory flat (tested).
+
+## Performance
+
+| Case | Result |
+|---|---|
+| 4K60 and 8K video in `AUTO` | Played by the hardware decoder whenever the device has one for the codec and profile |
+| 27-hour MP4 with a 114 MB index | Media3 alone: `OutOfMemoryError` on a 256 MB heap. With PlayMedia: plays within a 192 MB heap using 5–16 MB of it, full 27:02 duration, seeking anywhere |
+| Repeated playback, seeking, probing | Native memory stays flat (device tests) |
 
 ## Testing
 
 | Command | Covers |
 |---|---|
-| `./gradlew :media-decoder:testDebugUnitTest` | Subtitle timing |
+| `./gradlew :media-decoder:testDebugUnitTest` | Decoder mode rules, subtitle timing |
 | `./gradlew :media-extractor:testDebugUnitTest` | MP4 index sizing |
 | `./gradlew :media-tests:connectedDebugAndroidTest` | 62 device tests on AndroidX Media's sample media |
 
@@ -250,6 +320,52 @@ The device tests hold FFmpeg to Media3 and the device's own decoders:
 
 Needs JDK 17, the Android NDK 28.2 and Python 3. The build stops if FFmpeg ever ends up
 configured as GPL or nonfree.
+
+```text
+playme-media/
+├── ffmpeg/            FFmpeg and dav1d build script (outputs are git-ignored)
+├── media-core/        libplaymedia.so: JNI over FFmpeg (decoders, demuxer, probe, OpenGL ES drawing)
+├── media-decoder/     Media3 renderers, DecoderManager, subtitle timing
+├── media-extractor/   FFmpeg container reading for Media3
+├── media-info/        Media info and thumbnails
+└── media-tests/       Device tests against real media
+```
+
+## FAQ
+
+<details>
+<summary><b>A 4K or 8K video stutters. What should I check?</b></summary>
+
+Make sure the video decoder mode is `AUTO` or `HARDWARE`: `FFMPEG` decodes on the CPU, which
+no phone does fast enough at those sizes. If it still stutters on the hardware, the device's
+chip can't decode that stream in real time. `decoders.activeVideoMode` and Media3's
+`AnalyticsListener.onVideoDecoderInitialized` tell you which decoder is playing.
+
+</details>
+
+<details>
+<summary><b>Does PlayMedia make my app GPL?</b></summary>
+
+No. FFmpeg is built without GPL or nonfree parts and is licensed under the LGPL 2.1 or later.
+Your app must credit FFmpeg, include the LGPL text and offer FFmpeg's source: see
+[NOTICE](NOTICE).
+
+</details>
+
+<details>
+<summary><b>Can FFmpeg play DRM-protected streams?</b></summary>
+
+No. Encrypted formats stay with the device's decoders.
+
+</details>
+
+<details>
+<summary><b>How much does it add to the APK?</b></summary>
+
+One native library per ABI. Ship an App Bundle, or split the APK by ABI, so each device gets
+only its own.
+
+</details>
 
 ## Versioning
 

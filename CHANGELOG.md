@@ -3,13 +3,14 @@
 All notable changes to PlayMedia. Versions follow [Semantic Versioning](https://semver.org):
 a major version for breaking API changes, a minor one for new features, a patch for fixes.
 
-## [Unreleased]
+## [2.1.1] - 2026-10-31
 
 ### Fixed
 - 4K at 60 fps and 8K video stuttered in `DecoderMode.AUTO`: when the device's decoder claimed
   less than the video's size or frame rate, FFmpeg took it and couldn't keep up on the CPU. A
   codec and profile the device's hardware decodes now stays on the hardware, and a device
   decoder that fails to start gives way to the next one.
+- JitPack now builds and publishes `media-extractor` too.
 
 ## [2.1.0] - 2026-10-28
 
@@ -60,6 +61,7 @@ The engine rebuilt. Breaking: the 1.0.0 API (`PlayMeNativeBridge`, `PlayMeTextRe
 Prototype. Its native code never built against FFmpeg (it compiled in stub mode); 2.0.0
 replaced it.
 
+[2.1.1]: https://github.com/baboDev123/play_media_library/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/baboDev123/play_media_library/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/baboDev123/play_media_library/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/baboDev123/play_media_library/releases/tag/v1.0.0
