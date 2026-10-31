@@ -52,6 +52,13 @@ class DecoderManager @JvmOverloads constructor(
     @Volatile
     private var player: ExoPlayer? = null
 
+    /**
+     * Whether a hardware decoder of the device can decode a video format's codec and profile,
+     * whatever its size and frame rate. Set by [PlayMeRenderersFactory]; until then, never.
+     */
+    @Volatile
+    internal var hardwareDecodes: (Format) -> Boolean = { false }
+
     fun selectVideoDecoder(mode: DecoderMode) {
         if (mode == videoMode) return
         videoMode = mode
@@ -93,7 +100,14 @@ class DecoderManager @JvmOverloads constructor(
         val video = trackType == C.TRACK_TYPE_VIDEO
         val mode = if (video) videoMode else audioMode
         return when (kind) {
-            DecoderKind.FFMPEG -> mode == DecoderMode.FFMPEG || mode == DecoderMode.AUTO
+            DecoderKind.FFMPEG -> when (mode) {
+                DecoderMode.FFMPEG -> true
+                // Hardware decodes heavy video (4K at 60 fps, 8K) smoothly even past the size and
+                // frame rate its decoder claims, which FFmpeg on the CPU can't. If it fails after
+                // all, the app's decoder recovery moves the video to FFmpeg.
+                DecoderMode.AUTO -> !(video && hardwareDecodes(format))
+                else -> false
+            }
             DecoderKind.DEVICE -> when (mode) {
                 DecoderMode.AUTO -> true
                 // Formats FFmpeg doesn't know still play on the device.

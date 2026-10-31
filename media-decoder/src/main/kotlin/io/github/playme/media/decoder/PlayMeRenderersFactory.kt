@@ -3,12 +3,14 @@ package io.github.playme.media.decoder
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import androidx.media3.common.Format
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 
@@ -16,7 +18,8 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
  * Media3 renderers with FFmpeg decoding, chosen by [DecoderMode] through [decoderManager]:
  *
  * - Video: [DecoderMode.AUTO] tries the device's decoders and falls back to FFmpeg for what they
- *   can't play; [DecoderMode.HARDWARE] and [DecoderMode.SYSTEM_SOFTWARE] use only that kind of
+ *   can't play; a codec the device's hardware decodes stays there even past the size and frame
+ *   rate its decoder claims, as FFmpeg can't keep up with 4K at 60 fps or 8K; [DecoderMode.HARDWARE] and [DecoderMode.SYSTEM_SOFTWARE] use only that kind of
  *   device decoder; [DecoderMode.FFMPEG] uses FFmpeg, and the device only for formats FFmpeg
  *   doesn't know.
  * - Audio: the same, except that Android's audio decoders are software anyway, so
@@ -35,6 +38,9 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
     init {
         // FFmpeg renderers are added here, not looked up by Media3's extension mechanism.
         setExtensionRendererMode(EXTENSION_RENDERER_MODE_OFF)
+        // A device decoder that fails to start (one 8K stream too many, say) gives way to the next.
+        setEnableDecoderFallback(true)
+        decoderManager.hardwareDecodes = HardwareVideoSupport(context)::decodes
     }
 
     fun setDecoderMode(mode: DecoderMode): PlayMeRenderersFactory = apply {
@@ -105,6 +111,24 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
         val first = out.size
         super.buildTextRenderers(context, output, outputLooper, extensionRendererMode, out)
         for (index in first until out.size) out[index] = TimedTextRenderer(out[index], subtitleTiming)
+    }
+}
+
+/**
+ * Whether the device has a hardware decoder for a video format's codec and profile. Size and
+ * frame rate are left out on purpose: decoders often claim less than they play smoothly.
+ */
+internal class HardwareVideoSupport(context: Context) {
+    private val context = context.applicationContext
+
+    fun decodes(format: Format): Boolean {
+        if (format.sampleMimeType == null) return false
+        val decoders = try {
+            MediaCodecUtil.getDecoderInfosSoftMatch(MediaCodecSelector.DEFAULT, format, false, false)
+        } catch (_: MediaCodecUtil.DecoderQueryException) {
+            return false
+        }
+        return decoders.any { it.hardwareAccelerated && !it.softwareOnly && it.isFormatFunctionallySupported(context, format) }
     }
 }
 

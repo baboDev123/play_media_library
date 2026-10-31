@@ -3,6 +3,14 @@
 All notable changes to PlayMedia. Versions follow [Semantic Versioning](https://semver.org):
 a major version for breaking API changes, a minor one for new features, a patch for fixes.
 
+## [Unreleased]
+
+### Fixed
+- 4K at 60 fps and 8K video stuttered in `DecoderMode.AUTO`: when the device's decoder claimed
+  less than the video's size or frame rate, FFmpeg took it and couldn't keep up on the CPU. A
+  codec and profile the device's hardware decodes now stays on the hardware, and a device
+  decoder that fails to start gives way to the next one.
+
 ## [2.1.0] - 2026-10-28
 
 ### Added
