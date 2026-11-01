@@ -40,6 +40,11 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
         setExtensionRendererMode(EXTENSION_RENDERER_MODE_OFF)
         // A device decoder that fails to start (one 8K stream too many, say) gives way to the next.
         setEnableDecoderFallback(true)
+        // A device decoder that falls behind skips the frames no other frame needs, as long as
+        // they would be shown too late anyway, and so catches up instead of stuttering on. The
+        // extractors mark those frames (see PlayMeExtractorsFactory); AV1 is parsed here.
+        experimentalSetLateThresholdToDropDecoderInputUs(LATE_THRESHOLD_TO_DROP_INPUT_US)
+        experimentalSetParseAv1SampleDependencies(true)
         decoderManager.hardwareDecodes = HardwareVideoSupport(context)::decodes
     }
 
@@ -99,6 +104,11 @@ open class PlayMeRenderersFactory @JvmOverloads constructor(
         device(DecoderKind.DEVICE, mediaCodecSelector)
         device(DecoderKind.SYSTEM_SOFTWARE, SystemSoftwareMediaCodecSelector(mediaCodecSelector))
         out += ModeGatedRenderer(PlayMeAudioRenderer(eventHandler, eventListener, audioSink), DecoderKind.FFMPEG, decoderManager)
+    }
+
+    companion object {
+        /** How late a frame may be due on screen before its decoder skips it, if it can. */
+        const val LATE_THRESHOLD_TO_DROP_INPUT_US = 50_000L
     }
 
     override fun buildTextRenderers(

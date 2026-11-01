@@ -48,8 +48,14 @@ class VideoDecodingTest {
     fun mpeg2() = decodesEveryFrame("sample_h262_mpeg_audio.ts", "mpeg2video")
 
     @Test
-    fun drawsPicturesOntoTheSurface() {
-        val file = TestMedia.file("sample.mp4")
+    fun drawsPicturesOntoTheSurface() = drawsPictures("sample.mp4")
+
+    /** 10-bit frames are narrowed to 8 bits by the decoder, then drawn as any other. */
+    @Test
+    fun drawsTenBitPicturesOntoTheSurface() = drawsPictures("hlg10-color-test.mp4")
+
+    private fun drawsPictures(name: String) {
+        val file = TestMedia.file(name)
         val video = MediaInfoExtractor.extractSync(file.path).primaryVideo!!
         val thread = HandlerThread("frames").apply { start() }
         val reader = ImageReader.newInstance(video.width, video.height, PixelFormat.RGBA_8888, 3)

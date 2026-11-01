@@ -57,6 +57,16 @@ internal class FfmpegVideoDecoder(
     private var callback: Decoder.Callback? = null
     private var callbackExecutor: Executor? = null
 
+    /**
+     * Whether to leave out the frames no other frame refers to, for a video that can't be decoded
+     * in time. Set from any thread; applies from the next sample.
+     */
+    @Volatile
+    var skipsNonReferenceFrames = false
+
+    /** What the codec was last told, read and written on the decoding thread only. */
+    private var codecSkips = false
+
     private val thread = Thread(::decodeLoop, "PlayMedia:VideoDecoder")
 
     init {
@@ -177,6 +187,11 @@ internal class FfmpegVideoDecoder(
             return null
         }
         val data = input.data ?: return null
+        val skip = skipsNonReferenceFrames
+        if (skip != codecSkips) {
+            VideoNative.skipNonReferenceFrames(handle, skip)
+            codecSkips = skip
+        }
         val ready = VideoNative.send(handle, data, data.position(), data.remaining(), input.timeUs, input.isKeyFrame)
         if (ready < 0) return PlayMeDecoderException("Video decoding failed ($ready)")
         emitFrames(work, info)

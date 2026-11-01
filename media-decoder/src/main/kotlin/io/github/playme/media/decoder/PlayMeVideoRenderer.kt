@@ -18,6 +18,11 @@ import io.github.playme.media.core.PlayMediaNative
  * Plays video decoded by FFmpeg. Media3 decides when each frame is due, and drops late ones;
  * the frame is then drawn straight onto the player's Surface.
  *
+ * A video too heavy to decode in time (4K at 60 fps on a phone's CPU, say) would fall further
+ * and further behind, showing a frame now and then. Once frames come out late the decoder
+ * skips the frames no other frame needs, which costs the least to the picture, until it has
+ * caught up.
+ *
  * @param threads how many threads decode each video, by default one per core (at most 8).
  */
 class PlayMeVideoRenderer @JvmOverloads constructor(
@@ -30,6 +35,8 @@ class PlayMeVideoRenderer @JvmOverloads constructor(
 
     /** Native window state for the Surface being drawn on; 0 until the first frame. */
     private var window = 0L
+
+    private var decoder: FfmpegVideoDecoder? = null
 
     override fun getName(): String = "PlayMeVideoRenderer"
 
@@ -50,7 +57,19 @@ class PlayMeVideoRenderer @JvmOverloads constructor(
     override fun createDecoder(
         format: Format,
         cryptoConfig: CryptoConfig?,
-    ): Decoder<DecoderInputBuffer, VideoDecoderOutputBuffer, PlayMeDecoderException> = FfmpegVideoDecoder(format, threads)
+    ): Decoder<DecoderInputBuffer, VideoDecoderOutputBuffer, PlayMeDecoderException> =
+        FfmpegVideoDecoder(format, threads).also { decoder = it }
+
+    override fun shouldDropOutputBuffer(earlyUs: Long, elapsedSinceLastRenderUs: Long): Boolean {
+        decoder?.let { it.skipsNonReferenceFrames = skipsNonReferenceFrames(it.skipsNonReferenceFrames, earlyUs) }
+        return super.shouldDropOutputBuffer(earlyUs, elapsedSinceLastRenderUs)
+    }
+
+    override fun onPositionReset(positionUs: Long, joining: Boolean, sampleStreamIsResetToKeyFrame: Boolean) {
+        super.onPositionReset(positionUs, joining, sampleStreamIsResetToKeyFrame)
+        // After a seek the decoder starts afresh, on time.
+        decoder?.skipsNonReferenceFrames = false
+    }
 
     override fun renderOutputBufferToSurface(outputBuffer: VideoDecoderOutputBuffer, surface: Surface) {
         val frame = (outputBuffer as FrameBuffer).frame
@@ -66,6 +85,7 @@ class PlayMeVideoRenderer @JvmOverloads constructor(
 
     override fun onDisabled() {
         super.onDisabled()
+        decoder = null
         if (window != 0L) {
             FrameWindowNative.release(window)
             window = 0L
@@ -77,4 +97,23 @@ class PlayMeVideoRenderer @JvmOverloads constructor(
         @JvmStatic
         fun defaultThreads(): Int = Runtime.getRuntime().availableProcessors().coerceIn(1, 8)
     }
+}
+
+/**
+ * How late frames come out before the decoder starts skipping: as late as Media3 drops a frame
+ * rather than show it, as the decoder can't keep up from there.
+ */
+private const val BEHIND_US = 30_000L
+
+/** How close to on time frames come out before it stops. */
+private const val CAUGHT_UP_US = 5_000L
+
+/**
+ * Whether the decoder should skip the frames no other frame needs, given whether it [skipping]
+ * already and how early (negative: late) the frame now due came out.
+ */
+internal fun skipsNonReferenceFrames(skipping: Boolean, earlyUs: Long): Boolean = when {
+    earlyUs < -BEHIND_US -> true
+    earlyUs > -CAUGHT_UP_US -> false
+    else -> skipping
 }

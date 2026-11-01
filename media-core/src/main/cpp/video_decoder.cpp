@@ -4,10 +4,20 @@
 // freeFrame, which runs wherever an output buffer is released. Decoded frames are handed out
 // as AVFrame pointers; their pixel buffers are reference counted, so a frame stays valid after
 // the decoder that made it is gone.
+//
+// Frames come out as 8-bit 4:2:0, which is what FrameWindowNative draws. Frames in other formats
+// (10-bit video above all) are converted here, on the decoding thread, so the playback thread,
+// which also feeds the audio, only has to draw them.
 
 #include <deque>
 
 #include "common.h"
+
+extern "C" {
+#include <libavutil/imgutils.h>
+#include <libavutil/pixdesc.h>
+#include <libswscale/swscale.h>
+}
 
 namespace {
 
@@ -21,7 +31,97 @@ struct VideoDecoder {
     AVPacket* packet = nullptr;
     std::deque<AVFrame*> ready;
     int corruptPackets = 0;
+    // Converting frames of other formats to 8-bit 4:2:0.
+    SwsContext* converter = nullptr;
+    AVBufferPool* pool = nullptr;
+    int poolSize = 0;
 };
+
+bool isYuv420(int format) { return format == AV_PIX_FMT_YUV420P || format == AV_PIX_FMT_YUVJ420P; }
+
+// Planar 4:2:0 above 8 bits (10-bit video, 12-bit), little endian: the shift that brings it to 8.
+int highBitDepthShift(int format) {
+    const AVPixFmtDescriptor* descriptor = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(format));
+    if (descriptor == nullptr || descriptor->nb_components != 3 || descriptor->log2_chroma_w != 1 ||
+        descriptor->log2_chroma_h != 1 || (descriptor->flags & (AV_PIX_FMT_FLAG_BE | AV_PIX_FMT_FLAG_RGB)) ||
+        !(descriptor->flags & AV_PIX_FMT_FLAG_PLANAR)) {
+        return 0;
+    }
+    const int depth = descriptor->comp[0].depth;
+    return depth > 8 && depth <= 16 && descriptor->comp[0].step == 2 ? depth - 8 : 0;
+}
+
+// Rounds each sample to 8 bits; a plain loop the compiler vectorises.
+void narrowPlane(const uint8_t* source, int sourceStride, uint8_t* target, int targetStride, int width, int rows, int shift) {
+    const int half = 1 << (shift - 1);
+    const int top = (1 << (shift + 8)) - 1;
+    for (int y = 0; y < rows; y++) {
+        const auto* in = reinterpret_cast<const uint16_t*>(source + static_cast<ptrdiff_t>(y) * sourceStride);
+        uint8_t* out = target + static_cast<ptrdiff_t>(y) * targetStride;
+        for (int x = 0; x < width; x++) {
+            int value = in[x] + half;
+            value = value > top ? top : value;
+            out[x] = static_cast<uint8_t>(value >> shift);
+        }
+    }
+}
+
+// A new 8-bit 4:2:0 frame of [frame]'s size, its pixels from the decoder's pool.
+AVFrame* newYuv420Frame(VideoDecoder* decoder, const AVFrame* frame) {
+    const int size = av_image_get_buffer_size(AV_PIX_FMT_YUV420P, frame->width, frame->height, 64);
+    if (size < 0) return nullptr;
+    if (decoder->pool == nullptr || decoder->poolSize != size) {
+        // Buffers still out keep the old pool alive until they come back.
+        av_buffer_pool_uninit(&decoder->pool);
+        decoder->pool = av_buffer_pool_init(size, nullptr);
+        decoder->poolSize = size;
+        if (decoder->pool == nullptr) return nullptr;
+    }
+    AVFrame* converted = av_frame_alloc();
+    if (converted == nullptr) return nullptr;
+    converted->buf[0] = av_buffer_pool_get(decoder->pool);
+    if (converted->buf[0] == nullptr ||
+        av_image_fill_arrays(converted->data, converted->linesize, converted->buf[0]->data, AV_PIX_FMT_YUV420P,
+                             frame->width, frame->height, 64) < 0 ||
+        av_frame_copy_props(converted, frame) < 0) {
+        av_frame_free(&converted);
+        return nullptr;
+    }
+    converted->format = AV_PIX_FMT_YUV420P;
+    converted->width = frame->width;
+    converted->height = frame->height;
+    // Full range survives the conversion, as the colour matrix and range fields do.
+    if (frame->format == AV_PIX_FMT_YUVJ420P) converted->color_range = AVCOL_RANGE_JPEG;
+    return converted;
+}
+
+// [frame] as 8-bit 4:2:0, taking it over: the same frame when it already is, else a converted
+// one (and [frame] is freed). Null when it can't be converted.
+AVFrame* asYuv420(VideoDecoder* decoder, AVFrame* frame) {
+    if (isYuv420(frame->format)) return frame;
+    AVFrame* converted = newYuv420Frame(decoder, frame);
+    if (converted != nullptr) {
+        const int shift = highBitDepthShift(frame->format);
+        if (shift > 0) {
+            const int chromaWidth = (frame->width + 1) / 2;
+            const int chromaRows = (frame->height + 1) / 2;
+            narrowPlane(frame->data[0], frame->linesize[0], converted->data[0], converted->linesize[0], frame->width, frame->height, shift);
+            narrowPlane(frame->data[1], frame->linesize[1], converted->data[1], converted->linesize[1], chromaWidth, chromaRows, shift);
+            narrowPlane(frame->data[2], frame->linesize[2], converted->data[2], converted->linesize[2], chromaWidth, chromaRows, shift);
+        } else {
+            decoder->converter = sws_getCachedContext(
+                decoder->converter, frame->width, frame->height, static_cast<AVPixelFormat>(frame->format),
+                frame->width, frame->height, AV_PIX_FMT_YUV420P, SWS_POINT, nullptr, nullptr, nullptr);
+            if (decoder->converter == nullptr) {
+                av_frame_free(&converted);
+            } else {
+                sws_scale(decoder->converter, frame->data, frame->linesize, 0, frame->height, converted->data, converted->linesize);
+            }
+        }
+    }
+    av_frame_free(&frame);
+    return converted;
+}
 
 void dropReady(VideoDecoder* decoder) {
     for (AVFrame* frame : decoder->ready) av_frame_free(&frame);
@@ -38,6 +138,8 @@ int receiveAll(VideoDecoder* decoder) {
             av_frame_free(&frame);
             return result == AVERROR(EAGAIN) || result == AVERROR_EOF ? 0 : result;
         }
+        frame = asYuv420(decoder, frame);
+        if (frame == nullptr) return AVERROR(ENOMEM);
         decoder->ready.push_back(frame);
     }
 }
@@ -152,6 +254,14 @@ Java_io_github_playme_media_decoder_VideoNative_nextFrame(JNIEnv* env, jclass, j
     return reinterpret_cast<jlong>(frame);
 }
 
+// While [skip] is set the codec leaves out frames no other frame refers to, so a decoder that
+// can't keep up shows fewer frames rather than falling ever further behind.
+JNIEXPORT void JNICALL
+Java_io_github_playme_media_decoder_VideoNative_skipNonReferenceFrames(JNIEnv*, jclass, jlong handle, jboolean skip) {
+    auto* decoder = reinterpret_cast<VideoDecoder*>(handle);
+    decoder->context->skip_frame = skip ? AVDISCARD_NONREF : AVDISCARD_DEFAULT;
+}
+
 JNIEXPORT void JNICALL
 Java_io_github_playme_media_decoder_VideoNative_flush(JNIEnv*, jclass, jlong handle) {
     auto* decoder = reinterpret_cast<VideoDecoder*>(handle);
@@ -166,6 +276,8 @@ Java_io_github_playme_media_decoder_VideoNative_destroy(JNIEnv*, jclass, jlong h
     dropReady(decoder);
     avcodec_free_context(&decoder->context);
     av_packet_free(&decoder->packet);
+    sws_freeContext(decoder->converter);
+    av_buffer_pool_uninit(&decoder->pool);
     delete decoder;
 }
 

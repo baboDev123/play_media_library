@@ -24,6 +24,9 @@ internal object VideoNative {
     /** The next frame (free it with [freeFrame]) or 0; [info] gets its time in µs, width and height. */
     @JvmStatic external fun nextFrame(handle: Long, info: LongArray): Long
 
+    /** Has the codec leave out frames no other frame refers to, or decode them all again. */
+    @JvmStatic external fun skipNonReferenceFrames(handle: Long, skip: Boolean)
+
     @JvmStatic external fun flush(handle: Long)
 
     @JvmStatic external fun destroy(handle: Long)

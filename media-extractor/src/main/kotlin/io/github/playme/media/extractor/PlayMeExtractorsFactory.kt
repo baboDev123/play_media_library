@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import androidx.media3.common.C
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.Extractor
 import androidx.media3.extractor.ExtractorsFactory
@@ -23,7 +24,10 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class PlayMeExtractorsFactory @JvmOverloads constructor(
     context: Context,
-    private val media3: DefaultExtractorsFactory = DefaultExtractorsFactory(),
+    private val media3: DefaultExtractorsFactory = DefaultExtractorsFactory()
+        // Marks the H.264 and H.265 frames no other frame needs, which a decoder that falls
+        // behind may then skip (see PlayMeRenderersFactory).
+        .experimentalSetCodecsToParseWithinGopSampleDependencies(C.VIDEO_CODEC_FLAG_H264 or C.VIDEO_CODEC_FLAG_H265),
 ) : ExtractorsFactory {
 
     private val resolver = context.applicationContext.contentResolver
