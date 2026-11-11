@@ -33,8 +33,13 @@ LLVM="$NDK/toolchains/llvm/prebuilt/$HOST_TAG"
 
 # Build tools, kept out of the system Python.
 if [ ! -x "$TOOLS/bin/meson" ]; then
-    python3 -m venv "$TOOLS"
-    "$TOOLS/bin/pip" install --quiet meson ninja pkgconf
+    # Some Linux images (JitPack's among them) ship Python without ensurepip.
+    if ! python3 -m venv "$TOOLS" 2>/dev/null; then
+        rm -rf "$TOOLS"
+        python3 -m venv --without-pip "$TOOLS"
+        curl -fsSL --retry 3 https://bootstrap.pypa.io/get-pip.py | "$TOOLS/bin/python3" - --quiet
+    fi
+    "$TOOLS/bin/python3" -m pip install --quiet meson ninja pkgconf
 fi
 export PATH="$TOOLS/bin:$PATH"
 
