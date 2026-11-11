@@ -1,8 +1,12 @@
-# JitPack builds the native dependencies first; ffmpeg/build.sh needs the NDK and python3.
+# JitPack builds FFmpeg first, then publishes the four library modules.
+# Its own sdkmanager is too old for Java 17, so a current one installs the NDK.
 jdk:
   - openjdk17
 before_install:
-  - yes | sdkmanager "ndk;28.2.13676358" "cmake;3.22.1" > /dev/null || true
+  - curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip -o /tmp/cmdline-tools.zip
+  - unzip -q /tmp/cmdline-tools.zip -d /tmp
+  - yes | /tmp/cmdline-tools/bin/sdkmanager --sdk_root="$ANDROID_HOME" --licenses > /dev/null
+  - /tmp/cmdline-tools/bin/sdkmanager --sdk_root="$ANDROID_HOME" "ndk;28.2.13676358" "cmake;3.22.1" > /dev/null
   - ./ffmpeg/build.sh
 install:
   - ./gradlew :media-core:publishToMavenLocal :media-decoder:publishToMavenLocal :media-extractor:publishToMavenLocal :media-info:publishToMavenLocal
